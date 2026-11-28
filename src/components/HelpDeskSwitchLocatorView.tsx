@@ -10,12 +10,9 @@ import {
   CheckCircle2,
   Clock,
   Copy,
-  Cpu,
   Download,
   Eraser,
   ExternalLink,
-  Eye,
-  EyeOff,
   History,
   Info,
   Layers,
@@ -28,7 +25,6 @@ import {
   Server,
   ShieldAlert,
   ShieldCheck,
-  Sliders,
   Terminal,
   Trash2,
   Waypoints,
@@ -40,7 +36,6 @@ import { isUserDomainAdmin, isUserSuperAdmin } from '../utils/rbac';
 import { isTabAllowed } from '../services/settingsStorage';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 import {
-  HelpdeskProtocol,
   HelpdeskSwitchLocatorHistoryItem,
   HelpdeskSwitchLocatorHistoryResponse,
   clearHelpdeskSwitchLocatorHistory,
@@ -100,7 +95,6 @@ export const HelpDeskSwitchLocatorView: React.FC<HelpDeskSwitchLocatorViewProps>
     getHelpdeskSwitchLocatorRamSnapshot
   );
 
-  const [showPassword, setShowPassword] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [showUnreachable, setShowUnreachable] = useState(false);
   const [camSearch, setCamSearch] = useState('');
@@ -335,14 +329,18 @@ export const HelpDeskSwitchLocatorView: React.FC<HelpDeskSwitchLocatorViewProps>
   };
 
   const handleRelocateFromHistory = async (item: HelpdeskSwitchLocatorHistoryItem) => {
-    const q = item.targetQuery || item.resolvedMac || item.resolvedIp;
-    if (!q) return;
+    const macCandidate =
+      detectClientQueryKind(item.resolvedMac || '') === 'mac'
+        ? item.resolvedMac
+        : detectClientQueryKind(item.targetQuery || '') === 'mac'
+        ? item.targetQuery
+        : '';
+    if (!macCandidate) return;
     patchHelpdeskSwitchLocatorRamSnapshot({
-      targetInput: q,
-      selectedMacOverride: 'auto',
+      targetInput: macCandidate,
       activeSubTab: 'overview',
     });
-    await runHelpdeskSwitchLocate({ targetQuery: q, macOverride: 'auto' });
+    await runHelpdeskSwitchLocate({ targetQuery: macCandidate });
   };
 
   const tracker = ram.data?.tracker || null;
@@ -378,11 +376,6 @@ export const HelpDeskSwitchLocatorView: React.FC<HelpDeskSwitchLocatorViewProps>
         a.interface.toLowerCase().includes(q)
     );
   }, [arpEntries, arpSearch]);
-
-  const activeAdaptersForChoice = useMemo(
-    () => (ram.data?.endpointAdapters || []).filter((a) => Boolean(a.macAddress)),
-    [ram.data?.endpointAdapters]
-  );
 
   const sourceMeta = (() => {
     const src = ram.data?.endpointMacSource;
@@ -494,8 +487,8 @@ export const HelpDeskSwitchLocatorView: React.FC<HelpDeskSwitchLocatorViewProps>
           </div>
           <p className={`mt-1 text-xs ${textMuted}`}>
             {isEn
-              ? 'Manual IPv4 or MAC Lookup · Live Endpoint NIC Extraction or L3 ARP Resolution · Hop-by-Hop Switch Trace via SSH (Zero SNMP / Zero Stored Passwords)'
-              : 'ردیابی دستی بر اساس IP یا MAC · کشف خودکار MAC از کارت شبکه سیستم یا جدول ARP روتر/سوئیچ · نمایش مسیر فیزیکی گام‌به‌گام (بدون ذخیره رمز)'}
+              ? 'Manual MAC Address Lookup · Live Switch CAM & Reverse ARP Correlation · Hop-by-Hop Switch Trace via SSH (Zero SNMP / Zero Stored Credentials)'
+              : 'ردیابی دستی فقط بر اساس مک آدرس (MAC) · استعلام زنده جدول CAM و ARP در کل سوئیچ‌های شبکه · نمایش مسیر فیزیکی گام‌به‌گام'}
           </p>
         </div>
 
@@ -523,7 +516,7 @@ export const HelpDeskSwitchLocatorView: React.FC<HelpDeskSwitchLocatorViewProps>
         </div>
       </div>
 
-      {/* Top On-Demand Target IP / MAC Connection Card */}
+      {/* Top On-Demand Target MAC Locator Card */}
       <form
         onSubmit={handleSubmitLocate}
         className={`rounded-xl border p-4 sm:p-5 space-y-4 overflow-hidden ${surfaceBg}`}
@@ -533,76 +526,51 @@ export const HelpDeskSwitchLocatorView: React.FC<HelpDeskSwitchLocatorViewProps>
             <Cable className="w-4 h-4 text-teal-500 shrink-0" />
             <span className={`truncate ${textPrimary}`}>
               {isEn
-                ? 'On-Demand Target IP / MAC Locator'
-                : 'ردیابی لحظه‌ای پورت سوئیچ بر اساس IP یا MAC دستی'}
+                ? 'On-Demand Target MAC Locator'
+                : 'ردیابی لحظه‌ای پورت سوئیچ بر اساس مک آدرس (MAC Locator)'}
             </span>
             <FieldInfoTooltip
               isEn={isEn}
               isLightMode={isLightMode}
-              fieldName={isEn ? 'Manual Switch Port & Path Locator' : 'ردیاب پورت سوئیچ بر اساس IP یا MAC'}
+              fieldName={isEn ? 'Manual MAC Switch Port Locator' : 'ردیاب پورت سوئیچ بر اساس MAC'}
               whatIsIt={
                 isEn
-                  ? 'Accepts any manually entered workstation IPv4 address or MAC address, resolves the physical MAC (via WinRM/SSH NIC probe when credentials are entered, or L3 switch/router ARP tables), and traces its CAM entry hop-by-hop across authorized network switches.'
-                  : 'آدرس IPv4 یا مک آدرس وارد شده را دریافت کرده، در صورت ورود IP به صورت خودکار MAC واقعی سیستم را استخراج می‌کند (از طریق اتصال مستقیم با نام کاربری/رمز یا جدول ARP سوئیچ‌ها) و پورت اکسس و مسیر فیزیکی را در کل سوئیچ‌های مجاز پیدا می‌کند.'
+                  ? 'Accepts any manually entered target MAC address and traces its live CAM table entry hop-by-hop across authorized network switches, plus reverse ARP lookup on L3 switches/routers.'
+                  : 'مک آدرس وارد شده را دریافت کرده و بدون نیاز به هم‌سابنت بودن یا دسترسی مستقیم به سیستم کاربر، پورت اکسس، VLAN، مسیر فیزیکی گام‌به‌گام و در صورت وجود IP مرتبط در جدول ARP را در تمام سوئیچ‌های مجاز پیدا می‌کند.'
               }
               whyNeeded={
                 isEn
-                  ? 'Helps HelpDesk engineers identify the exact switch, physical port, VLAN, and uplink path for any IP or MAC without scanning the whole network blindly.'
-                  : 'به کارشناسان هلپ‌دسک کمک می‌کند بلافاصله بفهمند یک IP یا MAC مشخص دقیقاً به کدام پورت از کدام سوئیچ و روی چه VLAN ای متصل است.'
+                  ? 'Because switch CAM tables operate at Layer 2 across all VLANs regardless of IP subnet boundaries, tracing directly by MAC finds the exact physical port reliably anywhere in the switching fabric.'
+                  : 'از آنجا که سوئیچ‌ها در لایه ۲ بر اساس مک آدرس عمل می‌کنند (حتی اگر سیستم در سابنت دیگری باشد)، ردیابی مستقیم با MAC دقیق‌ترین و سریع‌ترین روش کشف پورت فیزیکی در کل شبکه است.'
               }
               example={
                 isEn
-                  ? 'Target: 192.168.10.45  or  00:50:56:A1:22:34  or  0050.56a1.2234'
-                  : 'آدرس هدف: 192.168.10.45  یا  00:50:56:A1:22:34  یا  0050.56a1.2234'
+                  ? 'Supported formats: 00:50:56:A1:22:34  or  00-50-56-A1-22-34  or  0050.56a1.2234'
+                  : 'فرمت‌های مجاز: 00:50:56:A1:22:34  یا  00-50-56-A1-22-34  یا  0050.56a1.2234'
               }
             />
           </div>
 
-          <div className={`text-[11px] flex flex-wrap items-center gap-3 ${textMuted}`}>
+          <div className={`text-[11px] flex flex-wrap items-center gap-2 ${textMuted}`}>
             <span>
               {isEn
-                ? 'Credentials stay in RAM only (optional for MAC / ARP)'
-                : 'نام کاربری و رمز فقط در RAM می‌ماند (برای IP جهت استخراج زنده مک کاربرد دارد)'}
+                ? 'Layer-2 Switch CAM Trace (Works Across All Subnets & VLANs)'
+                : 'ردیابی مستقیم لایه ۲ در تمام سابنت‌ها و VLANها بدون نیاز به رمز سیستم'}
             </span>
-            <span aria-hidden="true">·</span>
-            <button
-              type="button"
-              onClick={() =>
-                patchHelpdeskSwitchLocatorRamSnapshot((prev) => ({
-                  showAdvancedConn: !prev.showAdvancedConn,
-                }))
-              }
-              className="text-teal-500 hover:underline font-medium cursor-pointer flex items-center gap-1"
-            >
-              <Sliders className="w-3 h-3" />
-              <span>
-                {ram.showAdvancedConn
-                  ? isEn
-                    ? 'Hide Protocol & Trace Options'
-                    : 'بستن تنظیمات پروتکل و ردیابی'
-                  : isEn
-                  ? 'Protocol & Trace Options'
-                  : 'تنظیمات پروتکل و نحوه ردیابی'}
-              </span>
-            </button>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
-          {/* Target IP or MAC */}
-          <div className="lg:col-span-4 min-w-0">
+          {/* Target MAC Address Only */}
+          <div className="lg:col-span-5 min-w-0">
             <div className="flex items-center justify-between gap-2 mb-1.5">
               <label className={`block text-xs font-medium ${textMuted}`}>
-                {isEn ? 'Target IPv4 or MAC Address' : 'آدرس IP یا مک آدرس هدف (IP / MAC)'}
+                {isEn ? 'Target MAC Address' : 'مک آدرس هدف (MAC Address)'}
               </label>
               {queryKind !== 'empty' && (
                 <span
                   className={`px-1.5 py-0.2 rounded text-[10px] font-mono font-bold uppercase ${
-                    queryKind === 'ipv4'
-                      ? isLightMode
-                        ? 'bg-sky-100 text-sky-700'
-                        : 'bg-sky-500/20 text-sky-300'
-                      : queryKind === 'mac'
+                    queryKind === 'mac'
                       ? isLightMode
                         ? 'bg-teal-100 text-teal-700'
                         : 'bg-teal-500/20 text-teal-300'
@@ -611,15 +579,15 @@ export const HelpDeskSwitchLocatorView: React.FC<HelpDeskSwitchLocatorViewProps>
                       : 'bg-rose-500/20 text-rose-300'
                   }`}
                 >
-                  {queryKind === 'ipv4'
-                    ? isEn
-                      ? 'IPv4 → Auto MAC'
-                      : 'IPv4 ← جستجو با مک'
-                    : queryKind === 'mac'
+                  {queryKind === 'mac'
                     ? 'MAC'
+                    : queryKind === 'ipv4_disallowed'
+                    ? isEn
+                      ? 'IPv4 Disabled — Enter MAC'
+                      : 'ورود IP مجاز نیست — مک بزنید'
                     : isEn
-                    ? 'Invalid'
-                    : 'نامعتبر'}
+                    ? 'Invalid MAC'
+                    : 'مک نامعتبر'}
                 </span>
               )}
             </div>
@@ -628,78 +596,63 @@ export const HelpDeskSwitchLocatorView: React.FC<HelpDeskSwitchLocatorViewProps>
               dir="ltr"
               value={ram.targetInput}
               onChange={(e) => patchHelpdeskSwitchLocatorRamSnapshot({ targetInput: e.target.value })}
-              placeholder="192.168.10.45  or  00:50:56:A1:22:34"
+              placeholder="00:50:56:A1:22:34  or  0050.56a1.2234"
               className={`w-full min-w-0 px-3 py-2 rounded-lg border text-xs font-mono outline-none transition ${inputCls}`}
               required
             />
           </div>
 
-          {/* Ephemeral Username */}
-          <div className="lg:col-span-3 min-w-0">
-            <div className="flex items-center justify-between gap-1.5 mb-1.5">
-              <label className={`block text-xs font-medium truncate ${textMuted}`}>
-                {isEn ? 'Endpoint Username (For IP NIC Probe)' : 'نام کاربری سیستم (اختیاری)'}
-              </label>
-              <FieldInfoTooltip
-                isEn={isEn}
-                isLightMode={isLightMode}
-                fieldName={isEn ? 'Endpoint Credentials' : 'احراز هویت سیستم کاربر'}
-                whatIsIt={
-                  isEn
-                    ? 'Optional Windows/Linux credentials used when locating an IP address to extract the active NIC MAC directly from the workstation before scanning switches.'
-                    : 'نام کاربری و رمز سیستم کاربر که در صورت وارد کردن IP به پنل اجازه می‌دهد مک کارت شبکه فعال را مستقیماً از سیستم بخواند.'
-                }
-                whyNeeded={
-                  isEn
-                    ? 'Makes IP-to-Port discovery much faster and works even when L3 ARP entries are expired or split across routed VRFs. Leave empty if searching by MAC directly or relying on switch ARP.'
-                    : 'اگر رکورد ARP در روتر نباشد یا چند کارت شبکه وجود داشته باشد، خواندن مستقیم از سیستم دقت را ۱۰۰٪ می‌کند. برای جستجو با MAC یا تکیه بر ARP سوئیچ می‌توانید خالی بگذارید.'
-                }
-                example={isEn ? 'CORP\\Administrator or root' : 'CORP\\Administrator یا administrator'}
-              />
-            </div>
-            <input
-              type="text"
-              dir="ltr"
-              autoComplete="off"
-              value={ram.username}
-              onChange={(e) => patchHelpdeskSwitchLocatorRamSnapshot({ username: e.target.value })}
-              placeholder={isEn ? 'CORP\\Admin (optional)' : 'CORP\\Admin (اختیاری)'}
-              className={`w-full min-w-0 px-3 py-2 rounded-lg border text-xs font-mono outline-none transition ${inputCls}`}
-            />
-          </div>
-
-          {/* Ephemeral Password */}
+          {/* Switch Trace Strategy */}
           <div className="lg:col-span-3 min-w-0">
             <label className={`block text-xs font-medium mb-1.5 ${textMuted}`}>
-              {isEn ? 'Endpoint Password (Ephemeral)' : 'رمز عبور سیستم (موقت در RAM)'}
+              {isEn ? 'Switch Trace Strategy' : 'استراتژی اسکن سوئیچ‌ها'}
             </label>
-            <div className="relative">
+            <select
+              value={ram.traceMode}
+              onChange={(e) =>
+                patchHelpdeskSwitchLocatorRamSnapshot({
+                  traceMode: e.target.value === 'full_parallel' ? 'full_parallel' : 'fast_hop',
+                })
+              }
+              className={`w-full px-3 py-2 rounded-lg border text-xs outline-none ${inputCls}`}
+            >
+              <option value="fast_hop">
+                {isEn ? 'Fast Hop-by-Hop (Recommended)' : 'سریع گام‌به‌گام (پیشنهادی)'}
+              </option>
+              <option value="full_parallel">
+                {isEn ? 'Full Parallel (All Switches)' : 'اسکن کامل موازی همه سوئیچ‌ها'}
+              </option>
+            </select>
+          </div>
+
+          {/* Bypass Cache Toggle */}
+          <div className="lg:col-span-2 min-w-0">
+            <label
+              className={`h-[34px] px-3 rounded-lg border flex items-center gap-2 cursor-pointer text-xs ${
+                isLightMode
+                  ? 'bg-slate-50 border-slate-300 text-slate-700'
+                  : 'bg-slate-950 border-slate-700 text-slate-200'
+              }`}
+            >
               <input
-                type={showPassword ? 'text' : 'password'}
-                dir="ltr"
-                autoComplete="new-password"
-                value={ram.password}
-                onChange={(e) => patchHelpdeskSwitchLocatorRamSnapshot({ password: e.target.value })}
-                placeholder="••••••••••••"
-                className={`w-full min-w-0 px-3 py-2 rounded-lg border text-xs font-mono outline-none transition pe-9 ${inputCls}`}
+                type="checkbox"
+                checked={ram.forceRefresh}
+                onChange={(e) =>
+                  patchHelpdeskSwitchLocatorRamSnapshot({ forceRefresh: e.target.checked })
+                }
+                className="rounded border-slate-400 text-teal-600 focus:ring-teal-500 shrink-0"
               />
-              <button
-                type="button"
-                onClick={() => setShowPassword((p) => !p)}
-                title={showPassword ? (isEn ? 'Hide password' : 'مخفی کردن رمز') : isEn ? 'Show password' : 'نمایش رمز'}
-                className={`absolute top-1/2 -translate-y-1/2 end-2.5 p-1 ${textMuted} hover:text-teal-500 cursor-pointer`}
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-              >
-                {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              </button>
-            </div>
+              <span className="truncate">
+                {isEn ? 'Live SSH (No Cache)' : 'اسکن زنده (بدون کش)'}
+              </span>
+            </label>
           </div>
 
           {/* Primary Action + Wipe */}
           <div className="md:col-span-2 lg:col-span-2 min-w-0 flex items-center gap-2">
             <button
               type="submit"
-              disabled={!canAccessLocator || ram.loading || !ram.targetInput.trim()}
+              disabled={!canAccessLocator || ram.loading || queryKind !== 'mac'}
               className="flex-1 min-w-0 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition whitespace-nowrap cursor-pointer"
             >
               {ram.loading ? (
@@ -707,15 +660,15 @@ export const HelpDeskSwitchLocatorView: React.FC<HelpDeskSwitchLocatorViewProps>
               ) : (
                 <Search className="w-3.5 h-3.5 shrink-0" />
               )}
-              <span className="truncate">{isEn ? 'Connect & Locate' : 'اتصال و ردیابی'}</span>
+              <span className="truncate">{isEn ? 'Locate Port' : 'ردیابی پورت'}</span>
             </button>
             <button
               type="button"
               onClick={() => wipeHelpdeskSwitchLocatorRamSession()}
               title={
                 isEn
-                  ? 'Wipe target query, credentials & results from RAM'
-                  : 'پاک‌سازی فوری آدرس، رمز و نتایج از حافظه موقت'
+                  ? 'Wipe MAC query & results from RAM'
+                  : 'پاک‌سازی فوری مک آدرس و نتایج از حافظه موقت'
               }
               aria-label={isEn ? 'Wipe session' : 'پاک‌سازی نشست'}
               className={`shrink-0 h-[34px] w-[34px] flex items-center justify-center rounded-lg border transition cursor-pointer ${
@@ -728,100 +681,6 @@ export const HelpDeskSwitchLocatorView: React.FC<HelpDeskSwitchLocatorViewProps>
             </button>
           </div>
         </div>
-
-        {/* Collapsible Protocol & Trace Options */}
-        {ram.showAdvancedConn && (
-          <div className={`rounded-xl border p-3.5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end ${subSurfaceBg}`}>
-            <div>
-              <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
-                {isEn ? 'Endpoint Protocol' : 'پروتکل اتصال به سیستم'}
-              </label>
-              <select
-                value={ram.protocol}
-                onChange={(e) =>
-                  patchHelpdeskSwitchLocatorRamSnapshot({
-                    protocol: e.target.value as HelpdeskProtocol,
-                  })
-                }
-                className={`w-full px-2.5 py-1.5 rounded-lg border text-xs outline-none ${inputCls}`}
-              >
-                <option value="auto">{isEn ? 'Auto (WinRM / SMB / SSH)' : 'خودکار (WinRM / SMB / SSH)'}</option>
-                <option value="winrm_https">WinRM HTTPS (5986)</option>
-                <option value="winrm_http">WinRM HTTP (5985)</option>
-                <option value="smb_rpc">SMB / WMI RPC (445)</option>
-                <option value="ssh">SSH (22)</option>
-              </select>
-            </div>
-
-            <div>
-              <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
-                {isEn ? 'Custom Port (Optional)' : 'پورت دلخواه (اختیاری)'}
-              </label>
-              <input
-                type="number"
-                dir="ltr"
-                min={1}
-                max={65535}
-                value={ram.port}
-                onChange={(e) => patchHelpdeskSwitchLocatorRamSnapshot({ port: e.target.value })}
-                placeholder="Auto"
-                className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
-              />
-            </div>
-
-            <div>
-              <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
-                {isEn ? 'Switch Trace Strategy' : 'استراتژی اسکن سوئیچ‌ها'}
-              </label>
-              <select
-                value={ram.traceMode}
-                onChange={(e) =>
-                  patchHelpdeskSwitchLocatorRamSnapshot({
-                    traceMode: e.target.value === 'full_parallel' ? 'full_parallel' : 'fast_hop',
-                  })
-                }
-                className={`w-full px-2.5 py-1.5 rounded-lg border text-xs outline-none ${inputCls}`}
-              >
-                <option value="fast_hop">
-                  {isEn ? 'Fast Hop-by-Hop (Recommended)' : 'سریع گام‌به‌گام (پیشنهادی)'}
-                </option>
-                <option value="full_parallel">
-                  {isEn ? 'Full Parallel (All Switches)' : 'اسکن کامل موازی همه سوئیچ‌ها'}
-                </option>
-              </select>
-            </div>
-
-            <div>
-              <label className={`block text-[11px] font-medium mb-1 ${textMuted}`}>
-                {isEn ? 'JEA Config Name (Optional)' : 'نام نشست JEA (اختیاری)'}
-              </label>
-              <input
-                type="text"
-                dir="ltr"
-                value={ram.jeaConfigName}
-                onChange={(e) => patchHelpdeskSwitchLocatorRamSnapshot({ jeaConfigName: e.target.value })}
-                placeholder="NetTopologyHelpdesk"
-                className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
-              />
-            </div>
-
-            <div className="flex items-center pb-1">
-              <label className="inline-flex items-center gap-2 cursor-pointer text-xs">
-                <input
-                  type="checkbox"
-                  checked={ram.forceRefresh}
-                  onChange={(e) =>
-                    patchHelpdeskSwitchLocatorRamSnapshot({ forceRefresh: e.target.checked })
-                  }
-                  className="rounded border-slate-400 text-teal-600 focus:ring-teal-500"
-                />
-                <span className={textSecondary}>
-                  {isEn ? 'Bypass Switch Cache (Live SSH)' : 'اسکن زنده بدون کش سوئیچ‌ها'}
-                </span>
-              </label>
-            </div>
-          </div>
-        )}
 
         {/* Recent Lookups in RAM Strip */}
         {ram.recentLookups.length > 0 && (
@@ -837,10 +696,9 @@ export const HelpDeskSwitchLocatorView: React.FC<HelpDeskSwitchLocatorViewProps>
                 onClick={() => {
                   patchHelpdeskSwitchLocatorRamSnapshot({
                     targetInput: item.targetQuery,
-                    selectedMacOverride: 'auto',
                     activeSubTab: 'overview',
                   });
-                  void runHelpdeskSwitchLocate({ targetQuery: item.targetQuery, macOverride: 'auto' });
+                  void runHelpdeskSwitchLocate({ targetQuery: item.targetQuery });
                 }}
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-mono transition cursor-pointer disabled:opacity-50 ${
                   ram.data?.targetQuery.toLowerCase() === item.targetQuery.toLowerCase()
@@ -1074,13 +932,13 @@ export const HelpDeskSwitchLocatorView: React.FC<HelpDeskSwitchLocatorViewProps>
           <div className="max-w-xl mx-auto space-y-1.5">
             <h2 className={`text-base font-bold ${textPrimary}`}>
               {isEn
-                ? 'Enter a Target IP or MAC Address Above to Trace Its Switch Port'
-                : 'برای ردیابی پورت سوئیچ و مسیر شبکه، آدرس IP یا MAC را در کادر بالا وارد کنید'}
+                ? 'Enter a Target MAC Address Above to Trace Its Switch Port'
+                : 'برای ردیابی پورت سوئیچ و مسیر شبکه، مک آدرس را در کادر بالا وارد کنید'}
             </h2>
             <p className={`text-xs leading-relaxed ${textMuted}`}>
               {isEn
-                ? 'If you type an IPv4 address, the engine automatically resolves its MAC address (via endpoint NIC probe when credentials are supplied, or via L3 switch/router ARP tables) and discovers the physical edge port, VLAN, and upstream hops.'
-                : 'اگر آدرس IP وارد کنید، سامانه به صورت خودکار مک آدرس را پیدا کرده (از طریق کارت شبکه سیستم یا جدول ARP روتر و سوئیچ‌های لایه ۳) و پورت دقیق سوئیچ، VLAN و مسیر فیزیکی تا هسته شبکه را نمایش می‌دهد.'}
+                ? 'Enter the target MAC address in any standard notation (AA:BB:CC:DD:EE:FF, AA-BB-CC-DD-EE-FF, or aabb.ccdd.eeff). The locator queries authorized switches via SSH and identifies the physical edge port, VLAN, vendor OUI, and hop-by-hop uplink path.'
+                : 'مک آدرس سیستم هدف را به هر یک از فرمت‌های استاندارد وارد کنید تا سامانه از طریق SSH در کل سوئیچ‌های مجاز پورت اکسس دقیق، VLAN، سازنده کارت شبکه و مسیر فیزیکی گام‌به‌گام را نمایش دهد.'}
             </p>
           </div>
         </div>
@@ -1097,7 +955,7 @@ export const HelpDeskSwitchLocatorView: React.FC<HelpDeskSwitchLocatorViewProps>
           </div>
           <p className={`text-xs max-w-lg mx-auto ${textMuted}`}>
             {isEn
-              ? 'Querying authorized switches via live SSH CLI (ARP & MAC address tables) and correlating CDP/LLDP neighbor links...'
+              ? 'Querying authorized switches via live SSH CLI (MAC & reverse ARP tables) and correlating CDP/LLDP neighbor links...'
               : 'در حال استعلام زنده جدول MAC و ARP از سوئیچ‌های مجاز شبکه از طریق SSH و تحلیل همسایگی CDP/LLDP...'}
           </p>
         </div>
@@ -1106,50 +964,6 @@ export const HelpDeskSwitchLocatorView: React.FC<HelpDeskSwitchLocatorViewProps>
       {/* TAB 1: Switch Port & Access Edge Overview */}
       {!ram.loading && ram.data && tracker && ram.activeSubTab === 'overview' && (
         <div className="space-y-5">
-          {/* Multi-NIC selector & probe warning */}
-          {(activeAdaptersForChoice.length > 0 || ram.data.endpointProbeWarning) && (
-            <div className={`rounded-xl border p-4 flex flex-wrap items-center justify-between gap-3 ${surfaceBg}`}>
-              {activeAdaptersForChoice.length > 0 ? (
-                <div className="flex flex-wrap items-center gap-3 min-w-0 flex-1">
-                  <div className="flex items-center gap-2 text-xs font-semibold">
-                    <Cpu className="w-4 h-4 text-teal-500 shrink-0" />
-                    <span className={textPrimary}>
-                      {isEn ? 'Detected Endpoint NICs:' : 'کارت‌های شبکه کشف‌شده از سیستم:'}
-                    </span>
-                  </div>
-                  <select
-                    value={ram.selectedMacOverride}
-                    onChange={(e) => {
-                      const nextMac = e.target.value;
-                      patchHelpdeskSwitchLocatorRamSnapshot({ selectedMacOverride: nextMac });
-                      void runHelpdeskSwitchLocate({ macOverride: nextMac, forceRefresh: true });
-                    }}
-                    className={`min-w-[260px] max-w-full px-3 py-1.5 rounded-lg border text-xs font-mono outline-none ${inputCls}`}
-                  >
-                    <option value="auto">
-                      {isEn ? 'Auto-Select Primary Matching NIC' : 'انتخاب خودکار کارت شبکه اصلی'}
-                    </option>
-                    {activeAdaptersForChoice.map((nic) => (
-                      <option key={`${nic.name}-${nic.macAddress}`} value={nic.macAddress}>
-                        {`${nic.name} · ${nic.macAddress}${
-                          nic.ipv4Addresses?.[0] ? ` (${nic.ipv4Addresses[0]})` : ''
-                        } [${nic.status}]`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <div className={`text-xs flex items-center gap-2 ${textMuted}`}>
-                  <Info className="w-4 h-4 text-sky-500 shrink-0" />
-                  <span>
-                    {isEn
-                      ? `Endpoint live NIC probe skipped/unavailable (${ram.data.endpointProbeWarning}). Using switch L3 ARP table resolution.`
-                      : `استعلام مستقیم کارت شبکه سیستم انجام نشد (${ram.data.endpointProbeWarning})؛ مک آدرس از جدول ARP سوئیچ‌ها استخراج شد.`}
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Reason-Code Specific Diagnostic Banners */}
           {!edge && reasonCode && reasonCode !== 'found' && (
@@ -2096,15 +1910,29 @@ export const HelpDeskSwitchLocatorView: React.FC<HelpDeskSwitchLocatorViewProps>
                           </td>
                           <td className="py-2.5 px-3 text-end whitespace-nowrap">
                             <div className="inline-flex items-center justify-end gap-1.5">
-                              <button
-                                type="button"
-                                disabled={!canAccessLocator || ram.loading}
-                                onClick={() => void handleRelocateFromHistory(item)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white text-[11px] font-semibold transition cursor-pointer"
-                              >
-                                <Search className="w-3 h-3" />
-                                <span>{isEn ? 'Re-Locate' : 'ردیابی مجدد'}</span>
-                              </button>
+                              {(() => {
+                                const canRelocateMac =
+                                  detectClientQueryKind(item.resolvedMac || '') === 'mac' ||
+                                  detectClientQueryKind(item.targetQuery || '') === 'mac';
+                                return (
+                                  <button
+                                    type="button"
+                                    disabled={!canAccessLocator || ram.loading || !canRelocateMac}
+                                    onClick={() => void handleRelocateFromHistory(item)}
+                                    title={
+                                      !canRelocateMac
+                                        ? isEn
+                                          ? 'No MAC address recorded for this legacy entry'
+                                          : 'مک آدرسی برای این رکورد قدیمی ثبت نشده است'
+                                        : undefined
+                                    }
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white text-[11px] font-semibold transition cursor-pointer"
+                                  >
+                                    <Search className="w-3 h-3" />
+                                    <span>{isEn ? 'Re-Locate' : 'ردیابی مجدد'}</span>
+                                  </button>
+                                );
+                              })()}
                               <button
                                 type="button"
                                 disabled={busyHistoryId !== null}

@@ -1,36 +1,28 @@
 import {
-  HelpdeskProtocol,
   HelpdeskSwitchLocatorResult,
   locateHelpdeskSwitchPort,
 } from './api';
 
 export type HelpdeskSwitchLocatorSubTab = 'overview' | 'path' | 'cam_arp' | 'history';
 
-export type ClientQueryKind = 'ipv4' | 'mac' | 'invalid' | 'empty';
+export type ClientQueryKind = 'mac' | 'ipv4_disallowed' | 'invalid' | 'empty';
 
 export function detectClientQueryKind(raw: string): ClientQueryKind {
   const s = String(raw || '').trim();
   if (!s) return 'empty';
-  const ipv4Regex =
-    /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
-  if (ipv4Regex.test(s)) return 'ipv4';
   const hexOnly = s.replace(/[:.\-\s]/g, '');
   if (/^[0-9a-fA-F]{12}$/.test(hexOnly)) return 'mac';
+  const ipv4Regex =
+    /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+  if (ipv4Regex.test(s)) return 'ipv4_disallowed';
   return 'invalid';
 }
 
 export interface HelpdeskSwitchLocatorRamState {
   ownerUserId: string | null;
   targetInput: string;
-  username: string;
-  password: string;
-  protocol: HelpdeskProtocol;
-  port: string;
-  jeaConfigName: string;
   traceMode: 'fast_hop' | 'full_parallel';
   forceRefresh: boolean;
-  selectedMacOverride: string;
-  showAdvancedConn: boolean;
   activeSubTab: HelpdeskSwitchLocatorSubTab;
   loading: boolean;
   error: string | null;
@@ -56,15 +48,8 @@ function createInitialHelpdeskSwitchLocatorRamState(): HelpdeskSwitchLocatorRamS
   return {
     ownerUserId: null,
     targetInput: '',
-    username: '',
-    password: '',
-    protocol: 'auto',
-    port: '',
-    jeaConfigName: '',
     traceMode: 'fast_hop',
     forceRefresh: false,
-    selectedMacOverride: 'auto',
-    showAdvancedConn: false,
     activeSubTab: 'overview',
     loading: false,
     error: null,
@@ -106,11 +91,7 @@ export function patchHelpdeskSwitchLocatorRamSnapshot(
     | ((prev: HelpdeskSwitchLocatorRamState) => Partial<HelpdeskSwitchLocatorRamState>)
 ): void {
   const delta = typeof patch === 'function' ? patch(ramState) : patch;
-  let next = { ...ramState, ...delta };
-  if ('targetInput' in delta && delta.targetInput !== ramState.targetInput && !('selectedMacOverride' in delta)) {
-    next = { ...next, selectedMacOverride: 'auto' };
-  }
-  ramState = next;
+  ramState = { ...ramState, ...delta };
   notifyListeners();
 }
 
@@ -148,36 +129,35 @@ export function wipeHelpdeskSwitchLocatorRamOnLogout(): void {
 export async function runHelpdeskSwitchLocate(opts?: {
   targetQuery?: string;
   forceRefresh?: boolean;
-  macOverride?: string;
   traceModeOverride?: 'fast_hop' | 'full_parallel';
 }): Promise<HelpdeskSwitchLocatorResult | null> {
   const cleanTarget = String(opts?.targetQuery ?? ramState.targetInput).trim();
   const kind = detectClientQueryKind(cleanTarget);
-  if (kind === 'empty' || kind === 'invalid') {
+  if (kind !== 'mac') {
     patchHelpdeskSwitchLocatorRamSnapshot({
       error:
         kind === 'empty'
-          ? 'Please enter an IPv4 address or MAC address first.'
-          : 'Invalid IPv4 or MAC format. Example: 192.168.10.45 or 00:50:56:A1:22:34.',
+          ? 'Please enter a target MAC address first.'
+          : kind === 'ipv4_disallowed'
+          ? 'IPv4 lookup is disabled here because cross-subnet L2 traces require a MAC address. Please enter the MAC address directly.'
+          : 'Invalid MAC address format. Supported formats: AA:BB:CC:DD:EE:FF, AA-BB-CC-DD-EE-FF, or aabb.ccdd.eeff.',
       errorFa:
         kind === 'empty'
-          ? 'لطفاً ابتدا آدرس IP یا مک آدرس هدف را وارد کنید.'
-          : 'فرمت آدرس IP یا MAC نامعتبر است. مثال: 192.168.10.45 یا 00:50:56:A1:22:34',
+          ? 'لطفاً ابتدا مک آدرس (MAC) هدف را وارد کنید.'
+          : kind === 'ipv4_disallowed'
+          ? 'ورود IP در این بخش حذف شده است (زیرا در سابنت‌های مختلف جستجو انجام نمی‌شود). لطفاً فقط مک آدرس (MAC) را وارد کنید.'
+          : 'فرمت مک آدرس نامعتبر است. فرمت‌های مجاز: AA:BB:CC:DD:EE:FF یا AA-BB-CC-DD-EE-FF یا aabb.ccdd.eeff',
     });
     return null;
   }
 
   const effectiveTraceMode = opts?.traceModeOverride ?? ramState.traceMode;
-  const effectiveMacOverride = opts?.macOverride ?? ramState.selectedMacOverride;
   const effectiveForceRefresh = opts?.forceRefresh ?? ramState.forceRefresh;
 
   if (opts?.targetQuery !== undefined) {
     patchHelpdeskSwitchLocatorRamSnapshot({
       targetInput: cleanTarget,
-      selectedMacOverride: opts.macOverride ?? 'auto',
     });
-  } else if (opts?.macOverride !== undefined) {
-    patchHelpdeskSwitchLocatorRamSnapshot({ selectedMacOverride: opts.macOverride });
   }
 
   activeRunToken += 1;
@@ -192,19 +172,8 @@ export async function runHelpdeskSwitchLocate(opts?: {
   });
 
   try {
-    const portNum = ramState.port.trim() ? Number(ramState.port.trim()) : undefined;
     const res = await locateHelpdeskSwitchPort({
       targetQuery: cleanTarget,
-      ...(kind === 'ipv4' ? { targetIp: cleanTarget } : {}),
-      username: ramState.username.trim() || undefined,
-      password: ramState.password || undefined,
-      protocol: ramState.protocol,
-      port: portNum && Number.isInteger(portNum) ? portNum : undefined,
-      jeaConfigName: ramState.jeaConfigName.trim() || undefined,
-      endpointMac:
-        kind === 'ipv4' && effectiveMacOverride && effectiveMacOverride !== 'auto'
-          ? effectiveMacOverride
-          : undefined,
       forceRefresh: effectiveForceRefresh,
       traceMode: effectiveTraceMode,
     });
@@ -216,7 +185,7 @@ export async function runHelpdeskSwitchLocate(opts?: {
       const nextRecent = [
         {
           targetQuery: payload.targetQuery,
-          queryType: payload.queryType,
+          queryType: 'mac' as const,
           resolvedMac: payload.tracker.resolvedMac,
           resolvedIp: payload.tracker.resolvedIp || payload.targetIp || null,
           endpointHostname: payload.endpointHostname,
@@ -236,10 +205,6 @@ export async function runHelpdeskSwitchLocate(opts?: {
         lastHistoryId: res.historyId ?? prev.lastHistoryId,
         rateLimit: res.rateLimit ?? prev.rateLimit,
         recentLookups: nextRecent,
-        selectedMacOverride:
-          payload.queryType === 'ipv4' && payload.tracker.resolvedMac && effectiveMacOverride === 'auto'
-            ? prev.selectedMacOverride
-            : effectiveMacOverride,
       };
     });
 

@@ -9262,149 +9262,62 @@ apiRouter.post('/helpdesk/switch-port', async (req: Request, res: Response) => {
   }
 });
 
-// POST /helpdesk/switch-locator/locate - Standalone HelpDesk Switch Port & Network Path Locator (Manual IP or MAC + Optional Endpoint Credentials)
+// POST /helpdesk/switch-locator/locate - Standalone HelpDesk Switch Port & Network Path Locator (Manual MAC Input)
 apiRouter.post('/helpdesk/switch-locator/locate', async (req: Request, res: Response) => {
   const auth = await resolveHelpdeskAuth(req, 'switch_locator');
   if (!auth.ok) {
     return sendHelpdeskAuthFailure(res, auth);
   }
 
-  const rawQuery = String(req.body?.targetQuery || req.body?.targetIp || req.body?.endpointMac || '').trim();
+  const rawQuery = String(req.body?.targetQuery || req.body?.endpointMac || '').trim();
   if (!rawQuery) {
     return res.status(400).json({
       success: false,
-      error: 'Please enter a valid target IPv4 address or MAC address.',
-      errorFa: 'لطفاً یک آدرس IP یا MAC معتبر وارد کنید.',
+      error: 'Please enter a valid target MAC address.',
+      errorFa: 'لطفاً یک مک آدرس (MAC) معتبر وارد کنید.',
     });
   }
 
   const qType = detectQueryType(rawQuery);
-  if (qType === 'invalid') {
+  if (qType === 'ipv4') {
     return res.status(400).json({
       success: false,
-      error: 'Invalid IPv4 or MAC address format. Supported MAC formats: AA:BB:CC:DD:EE:FF, AA-BB-CC-DD-EE-FF, aabb.ccdd.eeff.',
-      errorFa: 'فرمت آدرس IP یا MAC نامعتبر است. فرمت‌های مجاز مک: AA:BB:CC:DD:EE:FF یا AA-BB-CC-DD-EE-FF یا aabb.ccdd.eeff.',
+      error: 'IPv4 lookup is disabled in Switch Port Locator. Please enter the target MAC address directly (e.g. AA:BB:CC:DD:EE:FF, AA-BB-CC-DD-EE-FF, or aabb.ccdd.eeff).',
+      errorFa: 'جستجو با آدرس IP در این بخش حذف شده است. لطفاً فقط مک آدرس (MAC) را وارد کنید (مثال: AA:BB:CC:DD:EE:FF یا AA-BB-CC-DD-EE-FF یا aabb.ccdd.eeff).',
+    });
+  }
+  if (qType !== 'mac') {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid MAC address format. Supported MAC formats: AA:BB:CC:DD:EE:FF, AA-BB-CC-DD-EE-FF, aabb.ccdd.eeff.',
+      errorFa: 'فرمت آدرس MAC نامعتبر است. فرمت‌های مجاز مک: AA:BB:CC:DD:EE:FF یا AA-BB-CC-DD-EE-FF یا aabb.ccdd.eeff.',
     });
   }
 
-  const target = extractHelpdeskTargetFromBody({
-    ...req.body,
-    targetIp: qType === 'ipv4' ? rawQuery : String(req.body?.targetIp || '').trim(),
-  });
   const forceRefresh = Boolean(req.body?.forceRefresh);
   const traceMode = req.body?.traceMode === 'full_parallel' ? 'full_parallel' : 'fast_hop';
-  const rawEndpointMac = String(req.body?.endpointMac || '').trim();
-
-  // Enforce HelpDesk IP allowlist/blocklist/exception rules if caller passed targetQuery without targetIp on body
-  if (qType === 'ipv4' && !String(req.body?.targetIp || '').trim()) {
-    try {
-      const excCheck = await verifyHelpdeskTargetNotBlocked(target, {
-        forceRefreshIdentity: false,
-        policy: auth.effectivePolicy || null,
-        hasFullAccess: auth.hasFullHelpdeskAccess,
-      });
-      if (excCheck.blocked) {
-        await addHelpdeskSwitchLocatorHistoryInDb({
-          targetQuery: rawQuery,
-          queryType: 'ipv4',
-          resolvedIp: rawQuery,
-          resolvedMac: '',
-          endpointHostname: excCheck.snapshot?.hostname || '',
-          macSource: 'switch_arp_fallback',
-          vendorName: '',
-          matchedSwitchId: '',
-          matchedSwitchName: '',
-          matchedSwitchIp: '',
-          matchedPort: '',
-          vlan: '',
-          reasonCode: 'blocked_by_exception',
-          traceStrategyUsed: traceMode,
-          switchesScannedCount: 0,
-          switchesActiveCount: 0,
-          durationMs: 0,
-          status: 'failed',
-          errorMessage: excCheck.reasonEn.slice(0, 300),
-          actorName: auth.actorName,
-          actorRole: auth.actorRole,
-        }).catch(() => {});
-
-        return res.status(403).json({
-          success: false,
-          blockedByException: true,
-          code: 'HELPDESK_TARGET_BLOCKED',
-          ruleId: excCheck.rule.id,
-          ruleType: excCheck.rule.ruleType,
-          matchedValue: excCheck.matchedValue,
-          error: excCheck.reasonEn,
-          errorFa: excCheck.reasonFa,
-        });
-      }
-    } catch (probeErr: any) {
-      const msg = String(probeErr?.message || 'Failed to verify target exception policy');
-      return res.status(/invalid|required/i.test(msg) ? 400 : 502).json({
-        success: false,
-        error: msg,
-        errorFa: msg,
-      });
-    }
+  const norm = normalizeMac(rawQuery);
+  if (!norm) {
+    return res.status(400).json({
+      success: false,
+      error: 'Target MAC address has an invalid format.',
+      errorFa: 'فرمت آدرس MAC مقصد نامعتبر است.',
+    });
   }
-
-  let validatedEndpointMac: string | undefined;
-  if (qType === 'mac') {
-    const norm = normalizeMac(rawQuery);
-    if (!norm) {
-      return res.status(400).json({
-        success: false,
-        error: 'Target MAC address has an invalid format.',
-        errorFa: 'فرمت آدرس MAC مقصد نامعتبر است.',
-      });
-    }
-    validatedEndpointMac = norm.standardUpper;
-  } else if (rawEndpointMac) {
-    const norm = normalizeMac(rawEndpointMac);
-    if (!norm) {
-      return res.status(400).json({
-        success: false,
-        error: 'Endpoint MAC override has an invalid format.',
-        errorFa: 'فرمت آدرس MAC انتخابی نامعتبر است.',
-      });
-    }
-    validatedEndpointMac = norm.standardUpper;
-  }
+  const validatedEndpointMac = norm.standardUpper;
+  const target = { targetIp: '' };
 
   try {
-    let endpointMacSource: 'client_cached' | 'endpoint_live' | 'switch_arp_fallback' | 'direct_mac' =
-      qType === 'mac'
-        ? 'direct_mac'
-        : validatedEndpointMac
-        ? 'client_cached'
-        : 'switch_arp_fallback';
-    let endpointHostname: string | null = null;
-    let endpointAdapters: Array<{
+    const endpointMacSource = 'direct_mac' as const;
+    const endpointHostname: string | null = null;
+    const endpointAdapters: Array<{
       name: string;
       description: string;
       status: string;
       macAddress: string;
       ipv4Addresses: string[];
     }> = [];
-    let endpointProbeWarning: string | null = null;
-
-    if (qType === 'ipv4' && target.targetIp && target.username && target.password) {
-      try {
-        const macIdentity = await collectEndpointMacIdentity(target);
-        endpointHostname = macIdentity.hostname || null;
-        endpointAdapters = macIdentity.adapters || [];
-        if (!validatedEndpointMac && macIdentity.primaryMac) {
-          const normPrimary = normalizeMac(macIdentity.primaryMac);
-          if (normPrimary) {
-            validatedEndpointMac = normPrimary.standardUpper;
-            endpointMacSource = 'endpoint_live';
-          }
-        }
-      } catch (probeErr: any) {
-        endpointProbeWarning = String(probeErr?.message || 'Endpoint MAC probe unavailable').slice(0, 220);
-      }
-    }
+    const endpointProbeWarning: string | null = null;
 
     // Authoritative PostgreSQL RBAC Device & Port Scoping for Switches/Routers
     let allowedSwitchIds: string[] | null = null;

@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.504.0';
+export const APP_VERSION = '1.504.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.504.1',
+    releaseDate: '2026-11-28',
+    type: 'patch',
+    title: 'تبدیل فرم «ردیاب پورت سوئیچ» (On-Demand Target MAC Locator) به ورودی صرفاً MAC و حذف ورودی IP',
+    title_en: 'Restrict HelpDesk On-Demand Target Switch Locator Strictly to MAC Address Input',
+    changes: [
+      'حذف قابلیت ورود آدرس IP و فیلدهای نام کاربری/رمز سیستم از کارت «On-Demand Target MAC Locator» در `HelpDeskSwitchLocatorView.tsx` و تغییر فرم به ردیابی مستقیم بر اساس مک آدرس (MAC Address) همراه با انتخاب استراتژی اسکن و اسکن زنده بدون کش.',
+      'به‌روزرسانی اعتبارسنجی در `helpdeskSwitchLocatorRamSession.ts` و مسیر بک‌اند `POST /api/helpdesk/switch-locator/locate` جهت پذیرش انحصاری فرمت‌های مک آدرس (`AA:BB:CC:DD:EE:FF`، `AA-BB-CC-DD-EE-FF` و `aabb.ccdd.eeff`) و ممانعت از جستجوی IP در سابنت‌های دیگر.'
+    ],
+    changes_en: [
+      'Converted the On-Demand Target Locator bar in `HelpDeskSwitchLocatorView.tsx` to accept MAC addresses exclusively, removing IPv4 input and workstation credential fields since cross-subnet L2 traces operate directly by MAC.',
+      'Enforced strict MAC-only validation in `helpdeskSwitchLocatorRamSession.ts` and `POST /api/helpdesk/switch-locator/locate` (`server/routes.ts`) while keeping reverse ARP correlation intact.'
+    ]
+  },
   {
     version: '1.504.0',
     releaseDate: '2026-11-28',
