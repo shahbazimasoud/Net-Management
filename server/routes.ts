@@ -12941,6 +12941,7 @@ apiRouter.post('/helpdesk/browser-manage/action', async (req: Request, res: Resp
     repair_profile_locks: 'browser_repair_locks',
     clear_transport_security: 'browser_clear_hsts',
     clear_policies: 'browser_clear_policies',
+    remove_extension: 'browser_remove_extension',
   };
   const rlAction = actionRateMap[rawAction];
   if (!rlAction) {
@@ -12979,6 +12980,9 @@ apiRouter.post('/helpdesk/browser-manage/action', async (req: Request, res: Resp
       startupUrls: req.body?.startupUrls,
       homepageScope: req.body?.homepageScope,
       clearSiteStorage: req.body?.clearSiteStorage,
+      extensionId: req.body?.extensionId,
+      extensionItems: req.body?.extensionItems,
+      blockViaPolicy: req.body?.blockViaPolicy,
     });
     await addPortalAuditLog({
       category: 'helpdesk',
@@ -12990,7 +12994,12 @@ apiRouter.post('/helpdesk/browser-manage/action', async (req: Request, res: Resp
       userName: auth.actorName,
       userRole: auth.actorRole,
       status: data.success ? 'success' : 'failed',
-      severity: rawAction === 'clear_cookies' || rawAction === 'close_browser' ? 'warning' : 'info',
+      severity:
+        rawAction === 'clear_cookies' ||
+        rawAction === 'close_browser' ||
+        rawAction === 'remove_extension'
+          ? 'warning'
+          : 'info',
       target: {
         type: 'device',
         name: data.targetIp,
@@ -12999,6 +13008,11 @@ apiRouter.post('/helpdesk/browser-manage/action', async (req: Request, res: Resp
           targetIp: data.targetIp,
           protocol: data.protocolUsed,
           browserAction: rawAction,
+          extensionId: req.body?.extensionId || undefined,
+          extensionCount: Array.isArray(req.body?.extensionItems)
+            ? req.body.extensionItems.length
+            : undefined,
+          blockViaPolicy: Boolean(req.body?.blockViaPolicy),
           itemsChanged: data.details?.itemsChanged ?? 0,
           mbFreed: data.details?.mbFreed ?? 0,
         },

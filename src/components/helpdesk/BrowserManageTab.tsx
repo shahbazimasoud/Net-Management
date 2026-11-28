@@ -33,6 +33,7 @@ import {
   HelpdeskBrowserBookmarkBackupResult,
   HelpdeskBrowserVendor,
   HelpdeskManagedProfileInfo,
+  HelpdeskBrowserExtensionItem,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
@@ -125,6 +126,12 @@ interface PendingConfirmState {
   tone: 'amber' | 'rose' | 'teal';
   payload: HelpdeskBrowserManageActionPayload;
   busyToken: string;
+  isExtensionRemove?: boolean;
+  extensionTargets?: HelpdeskBrowserExtensionItem[];
+}
+
+function getExtensionRowKey(ex: HelpdeskBrowserExtensionItem): string {
+  return `${ex.browser}|${ex.osUser}|${ex.profilePath || ex.profileDir}|${ex.extensionId}`;
 }
 
 export const BrowserManageTab: React.FC<BrowserManageTabProps> = ({
@@ -176,6 +183,8 @@ export const BrowserManageTab: React.FC<BrowserManageTabProps> = ({
   const [profileBrowserFilter, setProfileBrowserFilter] = useState<string>('all');
   const [extSearch, setExtSearch] = useState('');
   const [extBrowserFilter, setExtBrowserFilter] = useState<string>('all');
+  const [extUserFilter, setExtUserFilter] = useState<string>('all');
+  const [selectedExtKeys, setSelectedExtKeys] = useState<string[]>([]);
   const [showUninstalledBrowsers, setShowUninstalledBrowsers] = useState(false);
 
   // Bookmarks backup state
@@ -190,8 +199,11 @@ export const BrowserManageTab: React.FC<BrowserManageTabProps> = ({
 
   // Confirmation modal
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirmState | null>(null);
+  const [confirmCloseBrowsers, setConfirmCloseBrowsers] = useState(true);
+  const [confirmBlockPolicy, setConfirmBlockPolicy] = useState(false);
 
   useEffect(() => {
+    setSelectedExtKeys([]);
     if (data?.proxy?.winInet) {
       const wi = data.proxy.winInet;
       if (wi.autoConfigUrl) {
@@ -272,6 +284,7 @@ export const BrowserManageTab: React.FC<BrowserManageTabProps> = ({
     const q = extSearch.trim().toLowerCase();
     return (data?.extensions || []).filter((ex) => {
       if (extBrowserFilter !== 'all' && ex.browser !== extBrowserFilter) return false;
+      if (extUserFilter !== 'all' && ex.osUser !== extUserFilter) return false;
       if (!q) return true;
       return (
         ex.name.toLowerCase().includes(q) ||
@@ -280,7 +293,41 @@ export const BrowserManageTab: React.FC<BrowserManageTabProps> = ({
         ex.profileName.toLowerCase().includes(q)
       );
     });
-  }, [data?.extensions, extSearch, extBrowserFilter]);
+  }, [data?.extensions, extSearch, extBrowserFilter, extUserFilter]);
+
+  const removableFilteredExtensions = useMemo(
+    () => filteredExtensions.filter((ex) => ex.installType !== 'internal'),
+    [filteredExtensions]
+  );
+
+  const selectedExtensionsList = useMemo(() => {
+    const keySet = new Set(selectedExtKeys);
+    return (data?.extensions || []).filter(
+      (ex) => ex.installType !== 'internal' && keySet.has(getExtensionRowKey(ex))
+    );
+  }, [data?.extensions, selectedExtKeys]);
+
+  const allVisibleRemovableSelected =
+    removableFilteredExtensions.length > 0 &&
+    removableFilteredExtensions.every((ex) => selectedExtKeys.includes(getExtensionRowKey(ex)));
+
+  const toggleSelectExtRow = (ex: HelpdeskBrowserExtensionItem) => {
+    if (ex.installType === 'internal') return;
+    const k = getExtensionRowKey(ex);
+    setSelectedExtKeys((prev) =>
+      prev.includes(k) ? prev.filter((item) => item !== k) : [...prev, k]
+    );
+  };
+
+  const toggleSelectAllVisibleExtensions = () => {
+    const visibleKeys = removableFilteredExtensions.map(getExtensionRowKey);
+    if (allVisibleRemovableSelected) {
+      const visSet = new Set(visibleKeys);
+      setSelectedExtKeys((prev) => prev.filter((k) => !visSet.has(k)));
+    } else {
+      setSelectedExtKeys((prev) => Array.from(new Set([...prev, ...visibleKeys])));
+    }
+  };
 
   const toggleProxyTarget = (
     tgt: 'wininet' | 'winhttp' | 'chrome_policy' | 'edge_policy' | 'firefox'
@@ -480,8 +527,54 @@ export const BrowserManageTab: React.FC<BrowserManageTabProps> = ({
   const confirmAndRun = async () => {
     if (!pendingConfirm) return;
     const req = pendingConfirm;
+    const finalPayload: HelpdeskBrowserManageActionPayload = req.isExtensionRemove
+      ? {
+          ...req.payload,
+          closeBrowsersFirst: confirmCloseBrowsers,
+          blockViaPolicy: confirmBlockPolicy,
+        }
+      : req.payload;
     setPendingConfirm(null);
-    await onExecuteAction(req.payload, req.busyToken);
+    await onExecuteAction(finalPayload, req.busyToken);
+  };
+
+  const requestRemoveExtensions = (targets: HelpdeskBrowserExtensionItem[]) => {
+    const cleanTargets = targets.filter((t) => t.installType !== 'internal' && t.extensionId);
+    if (cleanTargets.length === 0) return;
+    setConfirmCloseBrowsers(true);
+    setConfirmBlockPolicy(false);
+    const isSingle = cleanTargets.length === 1;
+    const first = cleanTargets[0];
+    setPendingConfirm({
+      titleEn: isSingle
+        ? `Uninstall Extension: ${first.name}`
+        : `Uninstall ${cleanTargets.length} Selected Extensions`,
+      titleFa: isSingle
+        ? `حذف افزونه: ${first.name}`
+        : `حذف ${cleanTargets.length} افزونه انتخاب‌شده`,
+      descriptionEn: isSingle
+        ? `Remove "${first.name}" (${first.extensionId}) from ${first.browserLabel} profile (${first.osUser} / ${first.profileName}) on ${data?.hostname || targetIp}? Extension files, local extension storage, preferences entries and external registry keys will be deleted.`
+        : `Remove ${cleanTargets.length} selected browser extensions across the targeted profiles on ${data?.hostname || targetIp}? Extension files, local storage and preferences registrations will be deleted.`,
+      descriptionFa: isSingle
+        ? `آیا از حذف کامل افزونه «${first.name}» (${first.extensionId}) از پروفایل ${first.browserLabel} کاربر «${first.osUser} / ${first.profileName}» روی سیستم «${data?.hostname || targetIp}» اطمینان دارید؟ پوشه افزونه، داده‌های ذخیره‌شده و رجیستری مربوطه پاک خواهند شد.`
+        : `آیا از حذف کامل ${cleanTargets.length} افزونه انتخاب‌شده از پروفایل‌های هدف روی سیستم «${data?.hostname || targetIp}» اطمینان دارید؟ فایل‌های افزونه و تنظیمات مربوط به آن‌ها حذف می‌شوند.`,
+      tone: 'rose',
+      busyToken: isSingle
+        ? `ext:rm:${first.browser}:${first.extensionId}`
+        : `ext:bulk:${cleanTargets.length}`,
+      isExtensionRemove: true,
+      extensionTargets: cleanTargets,
+      payload: {
+        action: 'remove_extension',
+        extensionItems: cleanTargets.slice(0, 30).map((t) => ({
+          extensionId: t.extensionId,
+          browser: t.browser,
+          profilePath: t.profilePath || undefined,
+        })),
+        closeBrowsersFirst: true,
+        blockViaPolicy: false,
+      },
+    });
   };
 
   const openConfirmAction = (
@@ -1685,20 +1778,62 @@ export const BrowserManageTab: React.FC<BrowserManageTabProps> = ({
             )}
           </div>
 
-          {/* Installed Extensions Inventory */}
+          {/* Installed Extensions Inventory & Remote Removal */}
           <div className={`rounded-xl border p-5 space-y-4 ${surfaceBg}`}>
             <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
               <div className="flex items-center gap-2">
                 <Puzzle className="w-4 h-4 text-indigo-500" />
                 <h3 className={`text-sm font-bold ${textPrimary}`}>
-                  {isEn ? 'Installed Browser Extensions Audit' : 'فهرست افزونه‌های نصب‌شده (Extensions)'}
+                  {isEn
+                    ? 'Installed Browser Extensions Management'
+                    : 'مدیریت و حذف افزونه‌های نصب‌شده (Extensions)'}
                 </h3>
                 <span className={`text-xs font-mono ${textMuted}`}>
                   ({filteredExtensions.length} / {data.extensions.length})
                 </span>
+                <FieldInfoTooltip
+                  title={isEn ? 'Extension Uninstall & Policy Block' : 'حذف و مسدودسازی افزونه‌ها'}
+                  isEn={isEn}
+                  isLightMode={isLightMode}
+                  infoWhatEn="Lists installed extensions across all discovered Chrome, Edge, Brave, Opera, Vivaldi and Firefox profiles with remote uninstall and optional policy blocklist."
+                  infoWhatFa="فهرست تمام افزونه‌های نصب‌شده در پروفایل‌های کاربران را نمایش می‌دهد و امکان حذف کامل یا مسدودسازی مجدد از طریق پالیسی مرورگر را فراهم می‌کند."
+                  infoWhyEn="Malicious toolbars, adware, proxy hijackers and broken extensions frequently cause slowdowns or portal errors."
+                  infoWhyFa="افزونه‌های تبلیغاتی، مخرب یا ناسازگار یکی از دلایل اصلی کندی مرورگر، تغییر پروکسی ناخواسته یا اختلال در پورتال‌های داخلی هستند."
+                  infoExampleEn="Select suspicious extensions and click Uninstall; enable Policy Block if Google/Microsoft Sync keeps re-installing an unwanted add-on."
+                  infoExampleFa="افزونه‌های مشکوک را حذف کنید و اگر مرورگر از طریق Sync دوباره آن را نصب می‌کند، تیک مسدودسازی پالیسی را در پنجره تأیید فعال کنید."
+                />
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                {selectedExtensionsList.length > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      disabled={!canExecuteActions || busyKey !== null}
+                      onClick={() => requestRemoveExtensions(selectedExtensionsList)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-sm transition cursor-pointer disabled:opacity-50"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>
+                        {isEn
+                          ? `Uninstall Selected (${selectedExtensionsList.length})`
+                          : `حذف انتخاب‌شده‌ها (${selectedExtensionsList.length})`}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedExtKeys([])}
+                      className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium transition cursor-pointer ${
+                        isLightMode
+                          ? 'bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200'
+                          : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      {isEn ? 'Clear Selection' : 'لغو انتخاب'}
+                    </button>
+                  </>
+                )}
+
                 <div className="relative">
                   <Search className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 start-2.5 ${textMuted}`} />
                   <input
@@ -1706,9 +1841,23 @@ export const BrowserManageTab: React.FC<BrowserManageTabProps> = ({
                     value={extSearch}
                     onChange={(e) => setExtSearch(e.target.value)}
                     placeholder={isEn ? 'Search extension name or ID...' : 'جستجوی نام یا شناسه افزونه...'}
-                    className={`rounded-lg border ps-8 pe-3 py-1.5 text-xs outline-none w-56 ${inputClass}`}
+                    className={`rounded-lg border ps-8 pe-3 py-1.5 text-xs outline-none w-52 ${inputClass}`}
                   />
                 </div>
+                {osUsers.length > 0 && (
+                  <select
+                    value={extUserFilter}
+                    onChange={(e) => setExtUserFilter(e.target.value)}
+                    className={`rounded-lg border px-2.5 py-1.5 text-xs outline-none ${inputClass}`}
+                  >
+                    <option value="all">{isEn ? 'All OS Users' : 'همه کاربران'}</option>
+                    {osUsers.map((u) => (
+                      <option key={u} value={u}>
+                        {u}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <select
                   value={extBrowserFilter}
                   onChange={(e) => setExtBrowserFilter(e.target.value)}
@@ -1737,55 +1886,138 @@ export const BrowserManageTab: React.FC<BrowserManageTabProps> = ({
                     }`}
                   >
                     <tr>
+                      <th className="px-3 py-2 w-8 text-center">
+                        <input
+                          type="checkbox"
+                          checked={allVisibleRemovableSelected}
+                          onChange={toggleSelectAllVisibleExtensions}
+                          disabled={removableFilteredExtensions.length === 0}
+                          title={isEn ? 'Select all removable extensions' : 'انتخاب همه افزونه‌های قابل حذف'}
+                          className="rounded border-slate-400 cursor-pointer accent-rose-600"
+                        />
+                      </th>
                       <th className="px-3 py-2 font-semibold">{isEn ? 'Extension Name' : 'نام افزونه'}</th>
                       <th className="px-3 py-2 font-semibold">{isEn ? 'Browser / Profile' : 'مرورگر / پروفایل'}</th>
                       <th className="px-3 py-2 font-semibold">{isEn ? 'Version' : 'نسخه'}</th>
                       <th className="px-3 py-2 font-semibold">{isEn ? 'Status' : 'وضعیت'}</th>
                       <th className="px-3 py-2 font-semibold">{isEn ? 'Source / ID' : 'منبع / شناسه'}</th>
+                      <th className="px-3 py-2 font-semibold text-end">{isEn ? 'Actions' : 'مدیریت'}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                    {filteredExtensions.map((ex, i) => (
-                      <tr
-                        key={`${ex.browser}-${ex.osUser}-${ex.extensionId}-${i}`}
-                        className={isLightMode ? 'hover:bg-slate-50' : 'hover:bg-slate-800/40'}
-                      >
-                        <td className={`px-3 py-2 font-semibold ${textPrimary}`}>{ex.name}</td>
-                        <td className="px-3 py-2">
-                          <span
-                            className={`inline-flex px-1.5 py-0.5 rounded border text-[10px] font-bold me-1.5 ${getVendorBadgeClass(
-                              ex.browser,
-                              isLightMode
-                            )}`}
-                          >
-                            {ex.browserLabel}
-                          </span>
-                          <span className={textMuted}>
-                            {ex.osUser} / {ex.profileName}
-                          </span>
-                        </td>
-                        <td className={`px-3 py-2 font-mono ${textMuted}`} dir="ltr">
-                          {ex.version || '-'}
-                        </td>
-                        <td className="px-3 py-2">
-                          {ex.enabled === true ? (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-500">
-                              {isEn ? 'Enabled' : 'فعال'}
+                    {filteredExtensions.map((ex, i) => {
+                      const rowKey = getExtensionRowKey(ex);
+                      const isInternal = ex.installType === 'internal';
+                      const isChecked = selectedExtKeys.includes(rowKey);
+                      const rowBusy = busyKey === `ext:rm:${ex.browser}:${ex.extensionId}`;
+                      return (
+                        <tr
+                          key={`${rowKey}-${i}`}
+                          className={
+                            isChecked
+                              ? isLightMode
+                                ? 'bg-rose-50/70'
+                                : 'bg-rose-950/25'
+                              : isLightMode
+                              ? 'hover:bg-slate-50'
+                              : 'hover:bg-slate-800/40'
+                          }
+                        >
+                          <td className="px-3 py-2 text-center">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              disabled={isInternal}
+                              onChange={() => toggleSelectExtRow(ex)}
+                              title={
+                                isInternal
+                                  ? isEn
+                                    ? 'Built-in component cannot be selected'
+                                    : 'افزونه داخلی قابل انتخاب نیست'
+                                  : undefined
+                              }
+                              className="rounded border-slate-400 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed accent-rose-600"
+                            />
+                          </td>
+                          <td className={`px-3 py-2 font-semibold ${textPrimary}`}>{ex.name}</td>
+                          <td className="px-3 py-2">
+                            <span
+                              className={`inline-flex px-1.5 py-0.5 rounded border text-[10px] font-bold me-1.5 ${getVendorBadgeClass(
+                                ex.browser,
+                                isLightMode
+                              )}`}
+                            >
+                              {ex.browserLabel}
                             </span>
-                          ) : ex.enabled === false ? (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-500/15 text-slate-400">
-                              {isEn ? 'Disabled' : 'غیرفعال'}
+                            <span className={textMuted}>
+                              {ex.osUser} / {ex.profileName}
                             </span>
-                          ) : (
-                            <span className={textMuted}>-</span>
-                          )}
-                        </td>
-                        <td className={`px-3 py-2 font-mono text-[11px] ${textMuted}`} dir="ltr">
-                          <span className="me-1.5 opacity-80">[{ex.installType}]</span>
-                          {ex.extensionId}
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className={`px-3 py-2 font-mono ${textMuted}`} dir="ltr">
+                            {ex.version || '-'}
+                          </td>
+                          <td className="px-3 py-2">
+                            {ex.enabled === true ? (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-500">
+                                {isEn ? 'Enabled' : 'فعال'}
+                              </span>
+                            ) : ex.enabled === false ? (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-500/15 text-slate-400">
+                                {isEn ? 'Disabled' : 'غیرفعال'}
+                              </span>
+                            ) : (
+                              <span className={textMuted}>-</span>
+                            )}
+                          </td>
+                          <td className={`px-3 py-2 font-mono text-[11px] ${textMuted}`} dir="ltr">
+                            <span className="me-1.5 opacity-80">[{ex.installType}]</span>
+                            {ex.extensionId}
+                          </td>
+                          <td className="px-3 py-2 text-end">
+                            {isInternal ? (
+                              <span
+                                title={
+                                  isEn
+                                    ? 'Built-in browser component cannot be uninstalled'
+                                    : 'افزونه سیستمی داخلی مرورگر قابل حذف نیست'
+                                }
+                                className={`inline-flex items-center gap-1 px-2 py-1 rounded border text-[10px] font-medium opacity-70 ${
+                                  isLightMode
+                                    ? 'bg-slate-100 border-slate-200 text-slate-500'
+                                    : 'bg-slate-800/70 border-slate-700 text-slate-400'
+                                }`}
+                              >
+                                <Lock className="w-3 h-3" />
+                                <span>{isEn ? 'Built-in' : 'داخلی'}</span>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={!canExecuteActions || busyKey !== null}
+                                onClick={() => requestRemoveExtensions([ex])}
+                                title={
+                                  isEn
+                                    ? `Uninstall ${ex.name} from ${ex.profileName}`
+                                    : `حذف افزونه ${ex.name} از پروفایل ${ex.profileName}`
+                                }
+                                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-[11px] font-semibold transition cursor-pointer disabled:opacity-45 ${
+                                  isLightMode
+                                    ? 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
+                                    : 'bg-rose-500/15 border-rose-500/35 text-rose-300 hover:bg-rose-500/25'
+                                }`}
+                              >
+                                {rowBusy ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <Trash2 className="w-3 h-3" />
+                                )}
+                                <span>{isEn ? 'Remove' : 'حذف'}</span>
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1851,7 +2083,7 @@ export const BrowserManageTab: React.FC<BrowserManageTabProps> = ({
                 </button>
               </div>
 
-              <div className="p-5 text-xs leading-relaxed">
+              <div className="p-5 text-xs leading-relaxed space-y-3">
                 <div
                   className={`p-3.5 rounded-xl border flex items-start gap-2.5 ${
                     pendingConfirm.tone === 'rose'
@@ -1870,6 +2102,88 @@ export const BrowserManageTab: React.FC<BrowserManageTabProps> = ({
                   <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>{isEn ? pendingConfirm.descriptionEn : pendingConfirm.descriptionFa}</span>
                 </div>
+
+                {pendingConfirm.isExtensionRemove &&
+                  pendingConfirm.extensionTargets &&
+                  pendingConfirm.extensionTargets.length > 0 && (
+                    <div className="space-y-2.5">
+                      <div
+                        className={`max-h-36 overflow-y-auto rounded-xl border divide-y ${
+                          isLightMode
+                            ? 'bg-slate-50 border-slate-200 divide-slate-200'
+                            : 'bg-slate-950/60 border-slate-800 divide-slate-800'
+                        }`}
+                      >
+                        {pendingConfirm.extensionTargets.map((t, idx) => (
+                          <div
+                            key={`${t.extensionId}-${idx}`}
+                            className="px-3 py-2 flex items-center justify-between gap-2 text-[11px]"
+                          >
+                            <div className="min-w-0">
+                              <div className={`font-semibold truncate ${textPrimary}`}>{t.name}</div>
+                              <div className={`font-mono truncate ${textMuted}`} dir="ltr">
+                                {t.extensionId}
+                              </div>
+                            </div>
+                            <span
+                              className={`shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-semibold ${getVendorBadgeClass(
+                                t.browser,
+                                isLightMode
+                              )}`}
+                            >
+                              {t.browserLabel} • {t.osUser}/{t.profileName}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <label
+                        className={`flex items-start gap-2 p-2.5 rounded-xl border cursor-pointer ${subSurface}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={confirmCloseBrowsers}
+                          onChange={(e) => setConfirmCloseBrowsers(e.target.checked)}
+                          className="mt-0.5 rounded accent-teal-600 cursor-pointer"
+                        />
+                        <span>
+                          <span className={`block font-semibold ${textPrimary}`}>
+                            {isEn
+                              ? 'Close running target browser(s) first (Recommended)'
+                              : 'بستن پروسس‌های مرورگر هدف پیش از حذف (توصیه‌شده)'}
+                          </span>
+                          <span className={`block text-[10px] ${textMuted}`}>
+                            {isEn
+                              ? 'Prevents locked files and stops an open browser from re-writing Preferences on exit.'
+                              : 'از قفل بودن فایل‌های افزونه و بازنویسی فایل Preferences هنگام بسته شدن مرورگر جلوگیری می‌کند.'}
+                          </span>
+                        </span>
+                      </label>
+
+                      <label
+                        className={`flex items-start gap-2 p-2.5 rounded-xl border cursor-pointer ${subSurface}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={confirmBlockPolicy}
+                          onChange={(e) => setConfirmBlockPolicy(e.target.checked)}
+                          className="mt-0.5 rounded accent-rose-600 cursor-pointer"
+                        />
+                        <span>
+                          <span className={`block font-semibold ${textPrimary}`}>
+                            {isEn
+                              ? 'Block future re-install via Browser Policy (Blocklist)'
+                              : 'مسدودسازی نصب مجدد از طریق پالیسی مرورگر (Blocklist)'}
+                          </span>
+                          <span className={`block text-[10px] ${textMuted}`}>
+                            {isEn
+                              ? 'Adds extension ID to Chrome/Edge ExtensionInstallBlocklist (or Firefox Uninstall policy) so Sync cannot restore it.'
+                              : 'شناسه افزونه را در لیست سیاه پالیسی Chrome/Edge یا Uninstall فایرفاکس ثبت می‌کند تا از طریق Sync برنگردد.'}
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+                  )}
               </div>
 
               <div

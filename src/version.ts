@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.502.0';
+export const APP_VERSION = '1.503.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.503.0',
+    releaseDate: '2026-11-28',
+    type: 'minor',
+    title: 'افزودن قابلیت مدیریت، حذف تکی و گروهی و مسدودسازی پالیسی افزونه‌های مرورگر در تب «مرورگر» هلپ‌دسک',
+    title_en: 'Add Remote Browser Extension Uninstall, Multi-Select Bulk Removal & Policy Blocklist in HelpDesk Browser Tab',
+    changes: [
+      'افزودن ستون «مدیریت / حذف» به جدول فهرست افزونه‌های نصب‌شده در `BrowserManageTab.tsx` به همراه فیلتر کاربر سیستم، انتخاب تکی و گروهی (Bulk Uninstall) و محافظت از افزونه‌های سیستمی داخلی (`Built-in`).',
+      'افزودن عملیات بک‌اند `remove_extension` (`browser_remove_extension`) در `server/helpdeskService.ts` و `server/routes.ts` برای حذف کامل پوشه افزونه، Local/Sync/IndexedDB Storage، ثبت `Preferences` / `extensions.json`، و کلیدهای رجیستری Sideload در ویندوز و لینوکس.',
+      'افزودن گزینه‌های تعاملی در مدال تأییدیه حذف افزونه شامل بستن خودکار پروسس‌های مرورگر هدف پیش از حذف و افزودن اختیاری شناسه افزونه به لیست سیاه پالیسی (`ExtensionInstallBlocklist` / Firefox Uninstall Policy) جهت جلوگیری از نصب مجدد عبر Sync همراه با ثبت کامل ممیزی.'
+    ],
+    changes_en: [
+      'Upgraded the Installed Extensions table in `BrowserManageTab.tsx` with per-extension Uninstall buttons, multi-select Bulk Uninstall controls, OS User filtering, 3-part FieldInfoTooltip, and protection locks for built-in internal browser components.',
+      'Implemented the `remove_extension` (`browser_remove_extension`) backend engine across Windows PowerShell and Linux Python in `server/helpdeskService.ts` and `server/routes.ts`, removing extension directories, Local/Sync/IndexedDB storage, `Preferences` / `extensions.json` entries, and Windows sideload registry keys safely within verified profile paths.',
+      'Enhanced the bilingual confirmation modal with interactive toggles to close running target browsers beforehand and optionally block future re-installations via `ExtensionInstallBlocklist` / Firefox Uninstall policies, backed by RBAC and audit logging.'
+    ]
+  },
   {
     version: '1.502.0',
     releaseDate: '2026-11-28',

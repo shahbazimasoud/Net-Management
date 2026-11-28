@@ -109,7 +109,8 @@ export type HelpdeskWriteAction =
   | 'browser_close_processes'
   | 'browser_repair_locks'
   | 'browser_clear_hsts'
-  | 'browser_clear_policies';
+  | 'browser_clear_policies'
+  | 'browser_remove_extension';
 
 export type HelpdeskProcessCategory =
   | 'user_app'
@@ -26292,6 +26293,7 @@ export interface HelpdeskBrowserExtensionItem {
   osUser: string;
   profileName: string;
   profileDir: string;
+  profilePath: string;
   extensionId: string;
   name: string;
   version: string;
@@ -26403,7 +26405,14 @@ export type HelpdeskBrowserManageActionType =
   | 'close_browser'
   | 'repair_profile_locks'
   | 'clear_transport_security'
-  | 'clear_policies';
+  | 'clear_policies'
+  | 'remove_extension';
+
+export interface HelpdeskBrowserExtensionTarget {
+  extensionId: string;
+  browser?: HelpdeskBrowserVendor;
+  profilePath?: string;
+}
 
 export interface HelpdeskBrowserManageActionPayload {
   action: HelpdeskBrowserManageActionType;
@@ -26425,6 +26434,10 @@ export interface HelpdeskBrowserManageActionPayload {
   homepageScope?: 'profile_prefs' | 'policy' | 'both';
   // Cookie cleanup option
   clearSiteStorage?: boolean;
+  // Extension management options
+  extensionId?: string;
+  extensionItems?: HelpdeskBrowserExtensionTarget[];
+  blockViaPolicy?: boolean;
 }
 
 const VALID_BROWSER_VENDORS: HelpdeskBrowserVendor[] = [
@@ -26485,6 +26498,22 @@ function sanitizeProfilePathsList(raw?: any): string[] {
     if (!out.includes(p)) out.push(p);
   }
   return out.slice(0, 64);
+}
+
+function validateExtensionId(raw: any): string {
+  const id = String(raw || '').trim();
+  if (
+    !id ||
+    id.length < 3 ||
+    id.length > 128 ||
+    id.includes('..') ||
+    !/^(?:[a-pA-P]{32}|[a-zA-Z0-9._+-]+@[a-zA-Z0-9.-]+|\{[0-9a-fA-F-]{8,64}\}|[a-zA-Z0-9._-]{3,128})$/.test(
+      id
+    )
+  ) {
+    throw new Error('Invalid browser extension ID format.');
+  }
+  return id;
 }
 
 function mapProgIdToBrowserVendor(progIdRaw: string): HelpdeskBrowserVendor | null {
@@ -27042,6 +27071,7 @@ foreach ($uDir in $userDirs) {
             osUser = $uName
             profileName = $profName
             profileDir = $cp.dirName
+            profilePath = $cp.fullPath
             extensionId = $ef.Name
             name = $extName
             version = $extVer
@@ -27155,6 +27185,7 @@ foreach ($uDir in $userDirs) {
                 osUser = $uName
                 profileName = $cleanName
                 profileDir = $fp.Name
+                profilePath = $fp.FullName
                 extensionId = [string]$ad.id
                 name = $adName
                 version = [string]($ad.version)
@@ -27392,6 +27423,7 @@ for u_name, u_home in user_homes:
                                         "osUser": u_name,
                                         "profileName": p_name,
                                         "profileDir": sub,
+                                        "profilePath": sp,
                                         "extensionId": eid,
                                         "name": ename,
                                         "version": str(mj.get("version") or vers[0]),
@@ -27501,6 +27533,7 @@ for u_name, u_home in user_homes:
                                 "osUser": u_name,
                                 "profileName": clean,
                                 "profileDir": dname,
+                                "profilePath": pdir,
                                 "extensionId": str(ad.get("id") or ""),
                                 "name": str(dl.get("name") or ad.get("id") or ""),
                                 "version": str(ad.get("version") or ""),
@@ -27645,6 +27678,7 @@ PYEOF`;
       osUser: String(ex?.osUser || ''),
       profileName: String(ex?.profileName || ex?.profileDir || 'Default'),
       profileDir: String(ex?.profileDir || 'Default'),
+      profilePath: String(ex?.profilePath || ''),
       extensionId: String(ex?.extensionId || ''),
       name: String(ex?.name || ex?.extensionId || 'Extension'),
       version: String(ex?.version || ''),
@@ -28239,6 +28273,7 @@ export async function executeEndpointBrowserAction(
     'repair_profile_locks',
     'clear_transport_security',
     'clear_policies',
+    'remove_extension',
   ];
   if (!validActions.includes(action)) {
     throw new Error('Invalid browser management action.');
@@ -28316,6 +28351,39 @@ export async function executeEndpointBrowserAction(
     homepageScope = sc === 'profile_prefs' ? 'profile_prefs' : sc === 'policy' ? 'policy' : 'both';
   }
 
+  let extensionItems: Array<{
+    extensionId: string;
+    browser?: HelpdeskBrowserVendor;
+    profilePath?: string;
+  }> = [];
+  const blockViaPolicy = Boolean(params.blockViaPolicy);
+
+  if (action === 'remove_extension') {
+    if (Array.isArray(params.extensionItems) && params.extensionItems.length > 0) {
+      for (const rawItem of params.extensionItems.slice(0, 30)) {
+        const cleanId = validateExtensionId(rawItem?.extensionId);
+        const cleanB = rawItem?.browser
+          ? (String(rawItem.browser).trim().toLowerCase() as HelpdeskBrowserVendor)
+          : undefined;
+        const bChecked = cleanB && VALID_BROWSER_VENDORS.includes(cleanB) ? cleanB : undefined;
+        const cleanP = sanitizeProfilePathsList(
+          rawItem?.profilePath ? [rawItem.profilePath] : []
+        )[0];
+        extensionItems.push({
+          extensionId: cleanId,
+          browser: bChecked,
+          profilePath: cleanP,
+        });
+      }
+    } else {
+      const cleanId = validateExtensionId(params.extensionId);
+      extensionItems = [{ extensionId: cleanId }];
+    }
+    if (extensionItems.length === 0) {
+      throw new Error('At least one valid extensionId is required to remove extensions.');
+    }
+  }
+
   const payloadObj = {
     action,
     browsers,
@@ -28333,6 +28401,8 @@ export async function executeEndpointBrowserAction(
     restoreOnStartup,
     startupUrls,
     homepageScope,
+    extensionItems,
+    blockViaPolicy,
   };
   const pB64 = Buffer.from(JSON.stringify(payloadObj), 'utf8').toString('base64');
 
@@ -28455,6 +28525,9 @@ function Ensure-RegKey {
 
 if ($p.closeBrowsersFirst -and $p.action -ne 'close_browser') {
   $targetBrowsers = @($p.browsers)
+  if ($targetBrowsers.Count -eq 0 -and $p.extensionItems -and $p.extensionItems.Count -gt 0) {
+    $targetBrowsers = @($p.extensionItems | ForEach-Object { $_.browser } | Where-Object { $_ } | Select-Object -Unique)
+  }
   if ($targetBrowsers.Count -eq 0 -and $p.profilePaths -and $p.profilePaths.Count -gt 0) {
     $verifiedForClose = Filter-VerifiedProfiles (Get-VerifiedProfiles)
     $targetBrowsers = @($verifiedForClose | ForEach-Object { $_.browser } | Select-Object -Unique)
@@ -28803,6 +28876,188 @@ switch ($p.action) {
       }
     }
   }
+  'remove_extension' {
+    $allProfs = Get-VerifiedProfiles
+    $removedIds = New-Object System.Collections.Generic.HashSet[string]
+    $polBlocksDone = New-Object System.Collections.Generic.HashSet[string]
+    foreach ($item in $p.extensionItems) {
+      $extId = [string]$item.extensionId
+      if (-not $extId) { continue }
+      $selProfs = New-Object System.Collections.Generic.List[object]
+      foreach ($pr in $allProfs) {
+        if ($item.browser -and $pr.browser -ne $item.browser) { continue }
+        elseif (-not $item.browser -and $p.browsers -and $p.browsers.Count -gt 0 -and ($p.browsers -notcontains $pr.browser)) { continue }
+        if ($item.profilePath) {
+          if ($pr.path.TrimEnd('\\').ToLower() -ne ([string]$item.profilePath).TrimEnd('\\').ToLower()) { continue }
+        } elseif ($p.profilePaths -and $p.profilePaths.Count -gt 0) {
+          $norm = $pr.path.TrimEnd('\\').ToLower()
+          $hit = $false
+          foreach ($pp in $p.profilePaths) { if ($pp.TrimEnd('\\').ToLower() -eq $norm) { $hit = $true; break } }
+          if (-not $hit) { continue }
+        }
+        $selProfs.Add($pr)
+      }
+
+      foreach ($pr in $selProfs) {
+        if ($pr.kind -eq 'chromium') {
+          $extDir = Join-Path (Join-Path $pr.path 'Extensions') $extId
+          if (Test-Path -LiteralPath $extDir) {
+            try {
+              $sz = [int64]0
+              foreach ($fi in (Get-ChildItem -LiteralPath $extDir -File -Recurse -ErrorAction SilentlyContinue)) { $sz += $fi.Length }
+              Remove-Item -LiteralPath $extDir -Recurse -Force -ErrorAction Stop
+              $bytesFreed += $sz
+              $itemsChanged++
+              $removedIds.Add($extId) | Out-Null
+            } catch {
+              $warnings.Add("Locked extension folder ($($pr.browser)/$($pr.dirName)/$extId): $($_.Exception.Message)")
+            }
+          }
+          foreach ($subRel in @("Local Extension Settings\\$extId", "Sync Extension Settings\\$extId", "Managed Extension Settings\\$extId", "IndexedDB\\chrome-extension_$($extId)_0.indexeddb.leveldb")) {
+            $subP = Join-Path $pr.path $subRel
+            if (Test-Path -LiteralPath $subP) {
+              try { Remove-Item -LiteralPath $subP -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+            }
+          }
+          $prefFile = Join-Path $pr.path 'Preferences'
+          if (Test-Path -LiteralPath $prefFile) {
+            try {
+              $prefTxt = [System.IO.File]::ReadAllText($prefFile, [System.Text.Encoding]::UTF8)
+              $prefObj = $prefTxt | ConvertFrom-Json -ErrorAction Stop
+              $modifiedPref = $false
+              if ($prefObj -and $prefObj.extensions -and $prefObj.extensions.settings) {
+                $matchedProps = @($prefObj.extensions.settings.PSObject.Properties | Where-Object { $_.Name -ieq $extId })
+                foreach ($mp in $matchedProps) {
+                  $prefObj.extensions.settings.PSObject.Properties.Remove($mp.Name)
+                  $modifiedPref = $true
+                }
+              }
+              if ($prefObj -and $prefObj.extensions -and $prefObj.extensions.pinned_extensions) {
+                $beforeCnt = @($prefObj.extensions.pinned_extensions).Count
+                $filteredPins = @($prefObj.extensions.pinned_extensions | Where-Object { [string]$_ -ine $extId })
+                if ($filteredPins.Count -ne $beforeCnt) {
+                  $prefObj.extensions.pinned_extensions = $filteredPins
+                  $modifiedPref = $true
+                }
+              }
+              if ($modifiedPref) {
+                $outJson = $prefObj | ConvertTo-Json -Depth 40 -Compress
+                [System.IO.File]::WriteAllText($prefFile, $outJson, (New-Object System.Text.UTF8Encoding($false)))
+                $itemsChanged++
+                $removedIds.Add($extId) | Out-Null
+              }
+            } catch {
+              $warnings.Add("Preferences update skipped for $($pr.browser)/$($pr.dirName): $($_.Exception.Message)")
+            }
+          }
+          # Clean sideload external registry entries if present
+          $regExtRoots = switch ($pr.browser) {
+            'chrome' { @("HKLM:\\SOFTWARE\\Google\\Chrome\\Extensions\\$extId", "HKLM:\\SOFTWARE\\WOW6432Node\\Google\\Chrome\\Extensions\\$extId", "HKCU:\\Software\\Google\\Chrome\\Extensions\\$extId") }
+            'edge'   { @("HKLM:\\SOFTWARE\\Microsoft\\Edge\\Extensions\\$extId", "HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Edge\\Extensions\\$extId", "HKCU:\\Software\\Microsoft\\Edge\\Extensions\\$extId") }
+            'brave'  { @("HKLM:\\SOFTWARE\\BraveSoftware\\Brave-Browser\\Extensions\\$extId", "HKLM:\\SOFTWARE\\WOW6432Node\\BraveSoftware\\Brave-Browser\\Extensions\\$extId") }
+            default  { @() }
+          }
+          if ($userSid -and $pr.browser -eq 'chrome') { $regExtRoots += "Registry::HKEY_USERS\\$userSid\\Software\\Google\\Chrome\\Extensions\\$extId" }
+          if ($userSid -and $pr.browser -eq 'edge')   { $regExtRoots += "Registry::HKEY_USERS\\$userSid\\Software\\Microsoft\\Edge\\Extensions\\$extId" }
+          foreach ($rk in $regExtRoots) {
+            if (Test-Path $rk) {
+              try { Remove-Item -Path $rk -Recurse -Force -ErrorAction Stop; $itemsChanged++ } catch {}
+            }
+          }
+        } else {
+          $ffExtDir = Join-Path $pr.path 'extensions'
+          foreach ($cand in @("$ffExtDir\\$extId.xpi", "$ffExtDir\\$extId", "$ffExtDir\\staged\\$extId.xpi", "$ffExtDir\\staged\\$extId")) {
+            if (Test-Path -LiteralPath $cand) {
+              try {
+                if ((Get-Item -LiteralPath $cand).PSIsContainer) {
+                  foreach ($fi in (Get-ChildItem -LiteralPath $cand -File -Recurse -ErrorAction SilentlyContinue)) { $bytesFreed += $fi.Length }
+                } else {
+                  $bytesFreed += (Get-Item -LiteralPath $cand).Length
+                }
+                Remove-Item -LiteralPath $cand -Recurse -Force -ErrorAction Stop
+                $itemsChanged++
+                $removedIds.Add($extId) | Out-Null
+              } catch {
+                $warnings.Add("Locked Firefox add-on ($($pr.dirName)/$extId): $($_.Exception.Message)")
+              }
+            }
+          }
+          $ejFile = Join-Path $pr.path 'extensions.json'
+          if (Test-Path -LiteralPath $ejFile) {
+            try {
+              $ejObj = [System.IO.File]::ReadAllText($ejFile, [System.Text.Encoding]::UTF8) | ConvertFrom-Json -ErrorAction Stop
+              if ($ejObj -and $ejObj.addons) {
+                $origCnt = @($ejObj.addons).Count
+                $kept = @($ejObj.addons | Where-Object { [string]$_.id -ine $extId })
+                if ($kept.Count -ne $origCnt) {
+                  $ejObj.addons = $kept
+                  [System.IO.File]::WriteAllText($ejFile, ($ejObj | ConvertTo-Json -Depth 20 -Compress), (New-Object System.Text.UTF8Encoding($false)))
+                  $itemsChanged++
+                  $removedIds.Add($extId) | Out-Null
+                }
+              }
+            } catch {
+              $warnings.Add("Firefox extensions.json update skipped ($($pr.dirName)): $($_.Exception.Message)")
+            }
+          }
+          $ajFile = Join-Path $pr.path 'addons.json'
+          if (Test-Path -LiteralPath $ajFile) {
+            try {
+              $ajObj = [System.IO.File]::ReadAllText($ajFile, [System.Text.Encoding]::UTF8) | ConvertFrom-Json -ErrorAction SilentlyContinue
+              if ($ajObj -and $ajObj.addons) {
+                $origCntA = @($ajObj.addons).Count
+                $keptA = @($ajObj.addons | Where-Object { [string]$_.id -ine $extId })
+                if ($keptA.Count -ne $origCntA) {
+                  $ajObj.addons = $keptA
+                  [System.IO.File]::WriteAllText($ajFile, ($ajObj | ConvertTo-Json -Depth 15 -Compress), (New-Object System.Text.UTF8Encoding($false)))
+                }
+              }
+            } catch {}
+          }
+        }
+
+        if ($p.blockViaPolicy) {
+          $bKey = "$($pr.browser):$extId"
+          if (-not $polBlocksDone.Contains($bKey)) {
+            $polBlocksDone.Add($bKey) | Out-Null
+            $blkReg = switch ($pr.browser) {
+              'chrome'  { 'HKLM:\\SOFTWARE\\Policies\\Google\\Chrome\\ExtensionInstallBlocklist' }
+              'edge'    { 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Edge\\ExtensionInstallBlocklist' }
+              'brave'   { 'HKLM:\\SOFTWARE\\Policies\\BraveSoftware\\Brave\\ExtensionInstallBlocklist' }
+              'firefox' { 'HKLM:\\SOFTWARE\\Policies\\Mozilla\\Firefox\\Extensions\\Uninstall' }
+              default   { $null }
+            }
+            if ($blkReg) {
+              try {
+                Ensure-RegKey $blkReg
+                $existingProps = (Get-Item -Path $blkReg -ErrorAction SilentlyContinue).Property
+                $already = $false
+                $maxIdx = 0
+                if ($existingProps) {
+                  $itemProps = Get-ItemProperty -Path $blkReg -ErrorAction SilentlyContinue
+                  foreach ($pn in $existingProps) {
+                    if ($pn -match '^\\d+$') {
+                      $num = [int]$pn
+                      if ($num -gt $maxIdx) { $maxIdx = $num }
+                      if ([string]($itemProps.$pn) -ieq $extId) { $already = $true }
+                    }
+                  }
+                }
+                if (-not $already) {
+                  Set-ItemProperty -Path $blkReg -Name ([string]($maxIdx + 1)) -Value $extId -Type String
+                  $itemsChanged++
+                  $logs.Add("Blocked $extId via $($pr.browser) policy")
+                }
+              } catch {
+                $warnings.Add("Policy block failed for $($pr.browser)/$extId: $($_.Exception.Message)")
+              }
+            }
+          }
+        }
+      }
+    }
+    $logs.Add("Processed $($p.extensionItems.Count) extension removal target(s), cleaned $itemsChanged artifact(s) ($([math]::Round($bytesFreed / 1048576.0, 2)) MB)")
+  }
 }
 
 [PSCustomObject]@{
@@ -29024,6 +29279,121 @@ elif action == "clear_policies":
             os.remove(pfile)
             items_changed += 1
     logs.append(f"Cleared {items_changed} managed policy file(s)")
+elif action == "remove_extension":
+    all_profs = discover_profiles()
+    pol_done = set()
+    for item in (p.get("extensionItems") or []):
+        ext_id = str(item.get("extensionId") or "").strip()
+        if not ext_id: continue
+        t_browser = item.get("browser")
+        t_path = os.path.normpath(item.get("profilePath")) if item.get("profilePath") else None
+        for pr in all_profs:
+            if t_browser and pr["browser"] != t_browser: continue
+            elif not t_browser and browsers_filter and pr["browser"] not in browsers_filter: continue
+            if t_path and os.path.normpath(pr["path"]) != t_path: continue
+            elif not t_path and paths_filter and os.path.normpath(pr["path"]) not in paths_filter: continue
+
+            if pr["kind"] == "chromium":
+                ext_dir = os.path.join(pr["path"], "Extensions", ext_id)
+                if os.path.isdir(ext_dir):
+                    try:
+                        for r, _, fs in os.walk(ext_dir):
+                            for fn in fs:
+                                try: bytes_freed += os.path.getsize(os.path.join(r, fn))
+                                except Exception: pass
+                        shutil.rmtree(ext_dir)
+                        items_changed += 1
+                    except Exception as ex:
+                        warnings.append(f"Failed removing {ext_dir}: {ex}")
+                for sub_rel in (
+                    os.path.join("Local Extension Settings", ext_id),
+                    os.path.join("Sync Extension Settings", ext_id),
+                    os.path.join("Managed Extension Settings", ext_id),
+                ):
+                    sp = os.path.join(pr["path"], sub_rel)
+                    if os.path.isdir(sp):
+                        shutil.rmtree(sp, ignore_errors=True)
+                pf = os.path.join(pr["path"], "Preferences")
+                if os.path.isfile(pf):
+                    try:
+                        with open(pf, "r", encoding="utf-8", errors="ignore") as f:
+                            pj = json.load(f)
+                        mod = False
+                        exts_obj = pj.get("extensions")
+                        if isinstance(exts_obj, dict):
+                            settings_obj = exts_obj.get("settings")
+                            if isinstance(settings_obj, dict):
+                                for k in [kk for kk in list(settings_obj.keys()) if kk.lower() == ext_id.lower()]:
+                                    settings_obj.pop(k, None)
+                                    mod = True
+                            pins = exts_obj.get("pinned_extensions")
+                            if isinstance(pins, list):
+                                npins = [x for x in pins if str(x).lower() != ext_id.lower()]
+                                if len(npins) != len(pins):
+                                    exts_obj["pinned_extensions"] = npins
+                                    mod = True
+                        if mod:
+                            with open(pf, "w", encoding="utf-8") as f:
+                                json.dump(pj, f)
+                            items_changed += 1
+                    except Exception as ex:
+                        warnings.append(f"Preferences update skipped ({pr['browser']}/{pr['dir']}): {ex}")
+            else:
+                ff_ext = os.path.join(pr["path"], "extensions")
+                for cand in (
+                    os.path.join(ff_ext, f"{ext_id}.xpi"),
+                    os.path.join(ff_ext, ext_id),
+                    os.path.join(ff_ext, "staged", f"{ext_id}.xpi"),
+                    os.path.join(ff_ext, "staged", ext_id),
+                ):
+                    if os.path.exists(cand):
+                        try:
+                            if os.path.isdir(cand):
+                                for r, _, fs in os.walk(cand):
+                                    for fn in fs:
+                                        try: bytes_freed += os.path.getsize(os.path.join(r, fn))
+                                        except Exception: pass
+                                shutil.rmtree(cand)
+                            else:
+                                bytes_freed += os.path.getsize(cand)
+                                os.remove(cand)
+                            items_changed += 1
+                        except Exception as ex:
+                            warnings.append(f"Failed removing Firefox addon {cand}: {ex}")
+                ej_f = os.path.join(pr["path"], "extensions.json")
+                if os.path.isfile(ej_f):
+                    try:
+                        with open(ej_f, "r", encoding="utf-8", errors="ignore") as f:
+                            ej = json.load(f)
+                        addons = ej.get("addons")
+                        if isinstance(addons, list):
+                            kept = [a for a in addons if str(a.get("id") or "").lower() != ext_id.lower()]
+                            if len(kept) != len(addons):
+                                ej["addons"] = kept
+                                with open(ej_f, "w", encoding="utf-8") as f:
+                                    json.dump(ej, f)
+                                items_changed += 1
+                    except Exception as ex:
+                        warnings.append(f"extensions.json update skipped ({pr['dir']}): {ex}")
+
+            if p.get("blockViaPolicy") and (pr["browser"], ext_id) not in pol_done:
+                pol_done.add((pr["browser"], ext_id))
+                if pr["browser"] in ("chrome", "edge"):
+                    pol_dir = f"/etc/opt/{pr['browser']}/policies/managed"
+                    os.makedirs(pol_dir, exist_ok=True)
+                    pfile = os.path.join(pol_dir, "nettopo_ext_blocklist.json")
+                    pdata = {}
+                    if os.path.isfile(pfile):
+                        try: pdata = json.load(open(pfile, "r", encoding="utf-8"))
+                        except Exception: pdata = {}
+                    blk = list(pdata.get("ExtensionInstallBlocklist") or [])
+                    if ext_id not in blk:
+                        blk.append(ext_id)
+                        pdata["ExtensionInstallBlocklist"] = blk
+                        with open(pfile, "w", encoding="utf-8") as f: json.dump(pdata, f, indent=2)
+                        items_changed += 1
+                        logs.append(f"Blocked {ext_id} via Linux {pr['browser']} policy")
+    logs.append(f"Removed/cleaned {items_changed} extension artifact(s) ({round(bytes_freed / 1048576.0, 2)} MB)")
 
 print(json.dumps({
     "ok": True,
@@ -29059,6 +29429,7 @@ PYEOF`;
     repair_profile_locks: 'browser_repair_locks',
     clear_transport_security: 'browser_clear_hsts',
     clear_policies: 'browser_clear_policies',
+    remove_extension: 'browser_remove_extension',
   };
 
   return {

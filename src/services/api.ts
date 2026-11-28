@@ -1456,6 +1456,7 @@ export interface HelpdeskBrowserExtensionItem {
   osUser: string;
   profileName: string;
   profileDir: string;
+  profilePath: string;
   extensionId: string;
   name: string;
   version: string;
@@ -1567,7 +1568,14 @@ export type HelpdeskBrowserManageActionType =
   | 'close_browser'
   | 'repair_profile_locks'
   | 'clear_transport_security'
-  | 'clear_policies';
+  | 'clear_policies'
+  | 'remove_extension';
+
+export interface HelpdeskBrowserExtensionTarget {
+  extensionId: string;
+  browser?: HelpdeskBrowserVendor;
+  profilePath?: string;
+}
 
 export interface HelpdeskBrowserManageActionPayload {
   action: HelpdeskBrowserManageActionType;
@@ -1586,6 +1594,9 @@ export interface HelpdeskBrowserManageActionPayload {
   startupUrls?: string[];
   homepageScope?: 'profile_prefs' | 'policy' | 'both';
   clearSiteStorage?: boolean;
+  extensionId?: string;
+  extensionItems?: HelpdeskBrowserExtensionTarget[];
+  blockViaPolicy?: boolean;
 }
 
 export async function fetchHelpdeskBrowserManageInspect(
