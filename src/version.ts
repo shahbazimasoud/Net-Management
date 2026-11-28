@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.503.0';
+export const APP_VERSION = '1.504.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.504.0',
+    releaseDate: '2026-11-28',
+    type: 'minor',
+    title: 'افزودن صفحه مستقل «ردیاب پورت سوئیچ و مسیر شبکه» زیر منوی هلپ‌دسک با ورودی دستی IP/MAC و کنترل دسترسی RBAC',
+    title_en: 'Add Standalone HelpDesk "Switch Port & Path Locator" Sub-Page with Manual IP/MAC Input, Tabbed Telemetry & PostgreSQL RBAC',
+    changes: [
+      'افزودن صفحه جدید `ردیاب پورت سوئیچ و مسیر شبکه` (`helpdesk-switch-locator`) در زیرمنوی هلپ‌دسک با ساختار تب‌بندی‌شده همسان با `Active Directory & User Support HelpDesk` (شامل کادر اتصال لحظه‌ای، ذخیره رمز فقط در RAM، چهار تب «پورت سوئیچ و پورت اکسس»، «مسیر فیزیکی شبکه»، «جداول CAM و ARP سوئیچ‌ها» و «تاریخچه ردیابی‌ها» به همراه تاریخچه ماندگار در PostgreSQL).',
+      'پشتیبانی هوشمند از ورود دستی `IPv4` یا `MAC Address`: در صورت وارد کردن آدرس IP، سامانه به صورت خودکار مک آدرس را از طریق کارت شبکه سیستم هدف (با نام کاربری و رمز موقت) یا جدول ARP سوئیچ‌ها/روترهای لایه ۳ استخراج کرده و پورت اکسس، VLAN، نام و IP سوئیچ و مسیر فیزیکی گام‌به‌گام را نمایش می‌دهد.',
+      'افزودن مجوز مستقل `canViewHelpdeskSwitchLocator` در پایگاه داده PostgreSQL، اندپوینت‌های `/helpdesk/switch-locator/*`، تنظیمات `AccessPolicyModal` (همراه با Tooltip راهنمای سه‌بخشی) و نشانگر `SW-P` در جدول پالیسی‌های دسترسی (`AccessControlTab`).'
+    ],
+    changes_en: [
+      'Added the new `Switch Port & Path Locator` (`helpdesk-switch-locator`) sub-page under HelpDesk following the exact architecture and visual style of `Active Directory & User Support HelpDesk`, featuring a RAM-only on-demand connection bar, recent lookups strip, 4 segmented tabs (`Switch Port & Access Edge`, `Physical Network Path`, `Switch CAM & L3 ARP Tables`, and PostgreSQL-backed `Lookup History`), and 3-part FieldInfoTooltips.',
+      'Supports manual `IPv4` or `MAC` queries: when an IPv4 is entered, the locator automatically resolves its MAC (via live WinRM/SSH NIC probe when ephemeral credentials are supplied, or seamlessly via L3 switch/router ARP tables) and traces the physical edge port, VLAN, vendor OUI, and hop-by-hop path across RBAC-authorized switches.',
+      'Added independent PostgreSQL-authoritative RBAC control (`canViewHelpdeskSwitchLocator`) across `server/db.ts`, `server/routes.ts`, `settingsStorage.ts`, `AccessPolicyModal.tsx`, and the `SW-P` badge in `AccessControlTab.tsx`, plus `/api/helpdesk/switch-locator/locate` and history APIs.'
+    ]
+  },
   {
     version: '1.503.0',
     releaseDate: '2026-11-28',

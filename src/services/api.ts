@@ -993,9 +993,11 @@ export async function authorizeSchematicExport(payload: {
   return res.json();
 }
 
+export type HelpdeskProtocol = 'auto' | 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh';
+
 export interface HelpdeskConnectionPayload {
   targetIp: string;
-  protocol: 'auto' | 'winrm_https' | 'winrm_http' | 'smb_rpc' | 'ssh';
+  protocol: HelpdeskProtocol;
   port?: number;
   username: string;
   password: string;
@@ -1046,6 +1048,7 @@ export async function fetchHelpdeskStatus(): Promise<{
     canViewHelpdesk: boolean;
     canViewHelpdeskUsers?: boolean;
     canViewHelpdeskGroups?: boolean;
+    canViewHelpdeskSwitchLocator?: boolean;
     canRunHelpdeskDiagnostics: boolean;
     canExecuteHelpdeskActions: boolean;
     canViewHelpdeskEventViewer: boolean;
@@ -1301,6 +1304,152 @@ export async function fetchHelpdeskSwitchPort(
     body: JSON.stringify(payload),
   });
   if (!res.ok) await parseErrorAndThrow(res, 'Failed to locate connected switch port');
+  return res.json();
+}
+
+export interface HelpdeskSwitchLocatorResult {
+  targetQuery: string;
+  queryType: 'ipv4' | 'mac';
+  targetIp: string;
+  endpointHostname: string | null;
+  endpointMacSource: 'client_cached' | 'endpoint_live' | 'switch_arp_fallback' | 'direct_mac';
+  endpointAdapters: Array<{
+    name: string;
+    description: string;
+    status: string;
+    macAddress: string;
+    ipv4Addresses: string[];
+  }>;
+  endpointProbeWarning: string | null;
+  rbac: {
+    canOpenDevicesModule: boolean;
+    canInspectMatchedSwitchPorts: boolean;
+    canOpenMatchedSwitchTerminal: boolean;
+  };
+  tracker: HelpdeskSwitchPortResult['tracker'];
+}
+
+export interface HelpdeskSwitchLocatorRequestPayload {
+  targetQuery: string;
+  targetIp?: string;
+  username?: string;
+  password?: string;
+  protocol?: HelpdeskProtocol;
+  port?: number;
+  jeaConfigName?: string;
+  endpointMac?: string;
+  forceRefresh?: boolean;
+  traceMode?: 'fast_hop' | 'full_parallel';
+}
+
+export interface HelpdeskSwitchLocatorHistoryItem {
+  id: string;
+  targetQuery: string;
+  queryType: 'ipv4' | 'mac';
+  resolvedIp: string;
+  resolvedMac: string;
+  endpointHostname: string;
+  macSource: 'client_cached' | 'endpoint_live' | 'switch_arp_fallback' | 'direct_mac';
+  vendorName: string;
+  matchedSwitchId: string;
+  matchedSwitchName: string;
+  matchedSwitchIp: string;
+  matchedPort: string;
+  vlan: string;
+  reasonCode: string;
+  traceStrategyUsed: 'fast_hop' | 'full_parallel';
+  switchesScannedCount: number;
+  switchesActiveCount: number;
+  durationMs: number;
+  status: 'success' | 'not_found' | 'failed';
+  errorMessage?: string;
+  actorName: string;
+  actorRole: string;
+  checkedAt: string;
+}
+
+export interface HelpdeskSwitchLocatorHistoryResponse {
+  success: boolean;
+  scope: 'all' | 'own';
+  items: HelpdeskSwitchLocatorHistoryItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  stats: {
+    totalLookups: number;
+    uniqueTargets: number;
+    foundCount: number;
+    notFoundCount: number;
+    failedCount: number;
+    lastCheckedAt: string | null;
+    lastTargetQuery: string | null;
+  };
+}
+
+export async function locateHelpdeskSwitchPort(
+  payload: HelpdeskSwitchLocatorRequestPayload
+): Promise<{
+  success: boolean;
+  historyId?: string | null;
+  data: HelpdeskSwitchLocatorResult;
+  rateLimit?: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/switch-locator/locate`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to locate connected switch port');
+  return res.json();
+}
+
+export async function fetchHelpdeskSwitchLocatorHistory(params?: {
+  search?: string;
+  status?: 'all' | 'success' | 'not_found' | 'failed';
+  queryType?: 'all' | 'ipv4' | 'mac';
+  page?: number;
+  pageSize?: number;
+}): Promise<HelpdeskSwitchLocatorHistoryResponse> {
+  const qs = new URLSearchParams();
+  if (params?.search) qs.set('search', params.search);
+  if (params?.status) qs.set('status', params.status);
+  if (params?.queryType) qs.set('queryType', params.queryType);
+  if (params?.page) qs.set('page', String(params.page));
+  if (params?.pageSize) qs.set('pageSize', String(params.pageSize));
+  const query = qs.toString();
+  const res = await fetchWithRetry(
+    `${API_BASE}/helpdesk/switch-locator/history${query ? `?${query}` : ''}`,
+    {
+      cache: 'no-store',
+    }
+  );
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to load switch locator history');
+  return res.json();
+}
+
+export async function deleteHelpdeskSwitchLocatorHistoryItem(
+  id: string
+): Promise<{ success: boolean }> {
+  const res = await fetchWithRetry(
+    `${API_BASE}/helpdesk/switch-locator/history/${encodeURIComponent(id)}`,
+    {
+      method: 'DELETE',
+    }
+  );
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to delete switch locator history record');
+  return res.json();
+}
+
+export async function clearHelpdeskSwitchLocatorHistory(): Promise<{
+  success: boolean;
+  clearedCount: number;
+  scope: 'all' | 'own';
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/helpdesk/switch-locator/history`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) await parseErrorAndThrow(res, 'Failed to clear switch locator history');
   return res.json();
 }
 

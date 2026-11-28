@@ -222,6 +222,7 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canViewHelpdesk: true,
     canViewHelpdeskUsers: true,
     canViewHelpdeskGroups: true,
+    canViewHelpdeskSwitchLocator: true,
     canRunHelpdeskDiagnostics: true,
     canExecuteHelpdeskActions: true,
     canViewHelpdeskEventViewer: true,
@@ -329,6 +330,7 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canViewHelpdesk: true,
     canViewHelpdeskUsers: false,
     canViewHelpdeskGroups: false,
+    canViewHelpdeskSwitchLocator: false,
     canRunHelpdeskDiagnostics: true,
     canExecuteHelpdeskActions: false,
     canViewHelpdeskEventViewer: true,
@@ -440,6 +442,7 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canViewHelpdesk: true,
     canViewHelpdeskUsers: true,
     canViewHelpdeskGroups: true,
+    canViewHelpdeskSwitchLocator: true,
     canRunHelpdeskDiagnostics: true,
     canExecuteHelpdeskActions: true,
     canViewHelpdeskEventViewer: true,
@@ -1443,6 +1446,7 @@ export function getEffectiveUserPolicy(
         canViewHelpdesk: true,
         canViewHelpdeskUsers: true,
         canViewHelpdeskGroups: true,
+        canViewHelpdeskSwitchLocator: true,
         canRunHelpdeskDiagnostics: true,
         canExecuteHelpdeskActions: true,
         canViewHelpdeskEventViewer: true,
@@ -1506,6 +1510,7 @@ export function getEffectiveUserPolicy(
     canViewHelpdesk: false,
     canViewHelpdeskUsers: false,
     canViewHelpdeskGroups: false,
+    canViewHelpdeskSwitchLocator: false,
     canRunHelpdeskDiagnostics: false,
     canExecuteHelpdeskActions: false,
     canViewHelpdeskEventViewer: false,
@@ -1593,6 +1598,13 @@ export function isTabAllowed(tabId: string, policy?: AccessPolicy | any | null, 
         (policy?.canViewHelpdeskGroups !== undefined
           ? Boolean(policy.canViewHelpdeskGroups)
           : Boolean(policy?.canViewHelpdesk) && Boolean(policy?.canInspectHelpdeskDomainUsers)) ||
+        isUserDomainAdmin(user)
+      );
+    case 'helpdesk-switch-locator':
+      return (
+        (policy?.canViewHelpdeskSwitchLocator !== undefined
+          ? Boolean(policy.canViewHelpdeskSwitchLocator)
+          : Boolean(policy?.canViewHelpdesk) && Boolean(policy?.canRunHelpdeskDiagnostics)) ||
         isUserDomainAdmin(user)
       );
     case 'communications':

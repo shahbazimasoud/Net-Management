@@ -42,6 +42,8 @@ import { HelpDeskUsersView } from './components/HelpDeskUsersView';
 import { wipeHelpdeskUserRamOnLogout } from './services/helpdeskUserRamSession';
 import { HelpDeskGroupsView } from './components/HelpDeskGroupsView';
 import { wipeHelpdeskGroupRamOnLogout } from './services/helpdeskGroupRamSession';
+import { HelpDeskSwitchLocatorView } from './components/HelpDeskSwitchLocatorView';
+import { wipeHelpdeskSwitchLocatorRamOnLogout } from './services/helpdeskSwitchLocatorRamSession';
 import { NetworkToolsMenu } from './components/tools/NetworkToolsMenu';
 import { ToolsDock, StandardModalId, MinimizedStandardModal } from './components/tools/ToolsDock';
 import { NetworkToolId, ActiveToolState } from './components/tools/types';
@@ -481,6 +483,7 @@ export default function App() {
         'helpdesk',
         'helpdesk-users',
         'helpdesk-groups',
+        'helpdesk-switch-locator',
         'ports',
         'scanner',
         'templates',
@@ -791,6 +794,7 @@ export default function App() {
       wipeHelpdeskRamOnLogout();
       wipeHelpdeskUserRamOnLogout();
       wipeHelpdeskGroupRamOnLogout();
+      wipeHelpdeskSwitchLocatorRamOnLogout();
     }
   }, [isAuthenticated]);
 
@@ -2207,6 +2211,38 @@ export default function App() {
               currentUser={user}
               onNavigateToEndpointHelpdesk={() => setActiveTab('helpdesk')}
               onNavigateToUserHelpdesk={() => setActiveTab('helpdesk-users')}
+            />
+          )}
+
+          {activeTab === 'helpdesk-switch-locator' && (
+            <HelpDeskSwitchLocatorView
+              isLightMode={isLightMode}
+              isEn={isEn}
+              effectivePolicy={effectivePolicy}
+              currentUser={user}
+              onNavigateToDevices={
+                isTabAllowed('devices', effectivePolicy, user)
+                  ? () => setActiveTab('devices')
+                  : undefined
+              }
+              onInspectSwitchPorts={(switchId) => {
+                const targetDev = authorizedDevices.find(
+                  (d) => d.id.toLowerCase() === switchId.trim().toLowerCase()
+                );
+                if (targetDev) {
+                  handleInspectPorts(targetDev);
+                } else if (isTabAllowed('devices', effectivePolicy, user)) {
+                  setActiveTab('devices');
+                }
+              }}
+              onConnectSwitchTerminal={(switchId, port) => {
+                const targetDev = authorizedDevices.find(
+                  (d) => d.id.toLowerCase() === switchId.trim().toLowerCase()
+                );
+                if (targetDev) {
+                  void openTerminal(targetDev, port);
+                }
+              }}
             />
           )}
 

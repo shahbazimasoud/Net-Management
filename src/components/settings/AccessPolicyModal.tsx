@@ -243,6 +243,13 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
             (initialPolicy.priority || 0) >= 100 ||
             (initialPolicy.canViewHelpdesk && initialPolicy.canInspectHelpdeskDomainUsers)
         ),
+      canViewHelpdeskSwitchLocator:
+        initialPolicy.canViewHelpdeskSwitchLocator ??
+        Boolean(
+          initialPolicy.id === 'policy-super-admin' ||
+            (initialPolicy.priority || 0) >= 100 ||
+            (initialPolicy.canViewHelpdesk && initialPolicy.canRunHelpdeskDiagnostics)
+        ),
       canRunHelpdeskDiagnostics:
         initialPolicy.canRunHelpdeskDiagnostics ??
         Boolean(initialPolicy.id === 'policy-super-admin' || (initialPolicy.priority || 0) >= 100),
@@ -719,6 +726,13 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
             initialPolicy.id === 'policy-super-admin' ||
               (initialPolicy.priority || 0) >= 100 ||
               (initialPolicy.canViewHelpdesk && initialPolicy.canInspectHelpdeskDomainUsers)
+          ),
+        canViewHelpdeskSwitchLocator:
+          initialPolicy.canViewHelpdeskSwitchLocator ??
+          Boolean(
+            initialPolicy.id === 'policy-super-admin' ||
+              (initialPolicy.priority || 0) >= 100 ||
+              (initialPolicy.canViewHelpdesk && initialPolicy.canRunHelpdeskDiagnostics)
           ),
         canRunHelpdeskDiagnostics:
           initialPolicy.canRunHelpdeskDiagnostics ??
@@ -1803,6 +1817,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canViewHelpdesk: enabled,
         canViewHelpdeskUsers: enabled,
         canViewHelpdeskGroups: enabled,
+        canViewHelpdeskSwitchLocator: enabled,
         canViewCommunications: enabled,
         canSendCommunications: enabled,
         canSendAnnouncements: enabled,
@@ -4201,6 +4216,20 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         whyNeededFa: 'دسترسی بررسی و ممیزی گروه‌های دامین را به صورت مستقل از پشتیبانی ایستگاه‌های کاری کنترل می‌کند.',
                         practicalExampleEn: 'Enable for AD Support Engineers, Security Auditors, and Administrators',
                         practicalExampleFa: 'برای مهندسان AD، ممیزان امنیت و مدیران زیرساخت فعال شود',
+                      },
+                      {
+                        key: 'canViewHelpdeskSwitchLocator',
+                        labelEn: 'HelpDesk (Switch Port & Path Locator)',
+                        labelFa: 'هلپ‌دسک: ردیاب پورت سوئیچ و مسیر شبکه (Switch Locator)',
+                        descEn: 'Access to standalone HelpDesk Switch Port & Physical Network Path Locator (by manual IP or MAC)',
+                        descFa: 'دسترسی به صفحه ردیاب پورت سوئیچ و مسیر فیزیکی شبکه بر اساس IP یا MAC دستی سیستم',
+                        icon: Network,
+                        whatIsItEn: 'Controls visibility and backend authorization for the standalone HelpDesk Physical Switch Port & Network Path Locator sub-page.',
+                        whatIsItFa: 'مجوز مشاهده در منوی سایدبار و استفاده از صفحه مستقل ردیاب پورت سوئیچ و مسیر شبکه در زیرمجموعه هلپ‌دسک.',
+                        whyNeededEn: 'Allows HelpDesk or field technicians to trace which switch port a workstation IP or MAC is physically connected to without necessarily giving them full device management rights.',
+                        whyNeededFa: 'امکان ردیابی پورت متصل و مسیر فیزیکی سیستم‌های کاربران بر اساس IP یا MAC را برای کارشناسان پشتیبانی و NOC بدون نیاز به دسترسی کامل مدیریت سوئیچ فراهم می‌کند.',
+                        practicalExampleEn: 'Enable for HelpDesk Engineers, Field Network Technicians, NOC Staff, and Administrators',
+                        practicalExampleFa: 'برای کارشناسان هلپ‌دسک، تکنسین‌های پسیو/شبکه، اپراتورهای NOC و مدیران سیستم فعال شود',
                       },
                       {
                         key: 'canBulkConfigureDevices',

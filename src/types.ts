@@ -1067,6 +1067,7 @@ export interface AccessPolicy {
   canViewHelpdesk?: boolean;
   canViewHelpdeskUsers?: boolean;
   canViewHelpdeskGroups?: boolean;
+  canViewHelpdeskSwitchLocator?: boolean;
   canRunHelpdeskDiagnostics?: boolean;
   canExecuteHelpdeskActions?: boolean;
   canViewHelpdeskEventViewer?: boolean;

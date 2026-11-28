@@ -300,6 +300,10 @@ import {
   queryHelpdeskGroupHistoryFromDb,
   deleteHelpdeskGroupHistoryFromDb,
   clearHelpdeskGroupHistoryFromDb,
+  addHelpdeskSwitchLocatorHistoryInDb,
+  queryHelpdeskSwitchLocatorHistoryFromDb,
+  deleteHelpdeskSwitchLocatorHistoryFromDb,
+  clearHelpdeskSwitchLocatorHistoryFromDb,
   HelpdeskExceptionRuleType,
   listHelpdeskExceptionsFromDb,
   createHelpdeskExceptionInDb,
@@ -7945,6 +7949,8 @@ async function resolveHelpdeskAuth(
     | 'ad_user_history'
     | 'ad_group'
     | 'ad_group_history'
+    | 'switch_locator'
+    | 'switch_locator_history'
     | 'power_control'
     | 'manage_exceptions'
     | 'send_message'
@@ -8005,12 +8011,18 @@ async function resolveHelpdeskAuth(
       (effectivePolicy?.canUnlockHelpdeskDomainUsers !== undefined
         ? effectivePolicy.canUnlockHelpdeskDomainUsers === true
         : effectivePolicy?.canExecuteHelpdeskActions === true));
-  const canStatus = hasFullHelpdeskAccess || canView || canAdUsers || canAdGroups;
+  const canSwitchLocator =
+    hasFullHelpdeskAccess ||
+    (effectivePolicy?.canViewHelpdeskSwitchLocator !== undefined
+      ? effectivePolicy.canViewHelpdeskSwitchLocator === true
+      : canView && effectivePolicy?.canRunHelpdeskDiagnostics === true);
+  const canManageSwitchLocatorHistory = canSwitchLocator;
+  const canStatus = hasFullHelpdeskAccess || canView || canAdUsers || canAdGroups || canSwitchLocator;
   const canPowerControl = hasFullHelpdeskAccess || (canActions && effectivePolicy?.canPowerControlHelpdeskEndpoints === true);
   const canManageExceptions = hasFullHelpdeskAccess || effectivePolicy?.canManageHelpdeskExceptions === true;
   const canViewAllHistory =
     hasFullHelpdeskAccess ||
-    ((canDiagnostics || canDomainUsers || canAdUsers || canAdGroups) &&
+    ((canDiagnostics || canDomainUsers || canAdUsers || canAdGroups || canSwitchLocator) &&
       effectivePolicy?.canViewAllHelpdeskHistory === true);
   // Strict: Connection History across all operators is restricted exclusively to Super Admin
   const canViewAllConnectionHistory = Boolean(isSuperAdmin);
@@ -8050,6 +8062,10 @@ async function resolveHelpdeskAuth(
       ? canAdGroups
       : requiredPerm === 'ad_group_history'
       ? canManageAdGroupHistory
+      : requiredPerm === 'switch_locator'
+      ? canSwitchLocator
+      : requiredPerm === 'switch_locator_history'
+      ? canManageSwitchLocatorHistory
       : requiredPerm === 'manage_exceptions'
       ? canManageExceptions
       : requiredPerm === 'send_message'
@@ -8135,6 +8151,14 @@ async function resolveHelpdeskAuth(
       ad_group_history: {
         en: 'Access denied: Your policy does not permit modifying AD group check history (canUnlockHelpdeskDomainUsers).',
         fa: 'عدم دسترسی: پالیسی شما فاقد مجوز حذف یا پاک‌سازی تاریخچه بررسی گروه‌های دامین است.',
+      },
+      switch_locator: {
+        en: 'Access denied: Your policy does not permit accessing Switch Port & Path Locator (canViewHelpdeskSwitchLocator).',
+        fa: 'عدم دسترسی: پالیسی شما فاقد مجوز دسترسی به صفحه ردیاب پورت سوئیچ و مسیر شبکه (canViewHelpdeskSwitchLocator) است.',
+      },
+      switch_locator_history: {
+        en: 'Access denied: Your policy does not permit managing Switch Port Locator history (canViewHelpdeskSwitchLocator).',
+        fa: 'عدم دسترسی: پالیسی شما فاقد مجوز مدیریت تاریخچه ردیاب پورت سوئیچ است.',
       },
       power_control: {
         en: 'Access denied: Your policy does not permit remote workstation shutdown or restart (canPowerControlHelpdeskEndpoints).',
@@ -8288,6 +8312,7 @@ async function resolveHelpdeskAuth(
       canViewHelpdesk: canView,
       canViewHelpdeskUsers: canAdUsers,
       canViewHelpdeskGroups: canAdGroups,
+      canViewHelpdeskSwitchLocator: canSwitchLocator,
       canRunHelpdeskDiagnostics: canDiagnostics,
       canExecuteHelpdeskActions: canActions,
       canViewHelpdeskEventViewer: canEventViewer,
@@ -9233,6 +9258,473 @@ apiRouter.post('/helpdesk/switch-port', async (req: Request, res: Response) => {
       success: false,
       error: msg,
       errorFa: msg,
+    });
+  }
+});
+
+// POST /helpdesk/switch-locator/locate - Standalone HelpDesk Switch Port & Network Path Locator (Manual IP or MAC + Optional Endpoint Credentials)
+apiRouter.post('/helpdesk/switch-locator/locate', async (req: Request, res: Response) => {
+  const auth = await resolveHelpdeskAuth(req, 'switch_locator');
+  if (!auth.ok) {
+    return sendHelpdeskAuthFailure(res, auth);
+  }
+
+  const rawQuery = String(req.body?.targetQuery || req.body?.targetIp || req.body?.endpointMac || '').trim();
+  if (!rawQuery) {
+    return res.status(400).json({
+      success: false,
+      error: 'Please enter a valid target IPv4 address or MAC address.',
+      errorFa: 'لطفاً یک آدرس IP یا MAC معتبر وارد کنید.',
+    });
+  }
+
+  const qType = detectQueryType(rawQuery);
+  if (qType === 'invalid') {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid IPv4 or MAC address format. Supported MAC formats: AA:BB:CC:DD:EE:FF, AA-BB-CC-DD-EE-FF, aabb.ccdd.eeff.',
+      errorFa: 'فرمت آدرس IP یا MAC نامعتبر است. فرمت‌های مجاز مک: AA:BB:CC:DD:EE:FF یا AA-BB-CC-DD-EE-FF یا aabb.ccdd.eeff.',
+    });
+  }
+
+  const target = extractHelpdeskTargetFromBody({
+    ...req.body,
+    targetIp: qType === 'ipv4' ? rawQuery : String(req.body?.targetIp || '').trim(),
+  });
+  const forceRefresh = Boolean(req.body?.forceRefresh);
+  const traceMode = req.body?.traceMode === 'full_parallel' ? 'full_parallel' : 'fast_hop';
+  const rawEndpointMac = String(req.body?.endpointMac || '').trim();
+
+  // Enforce HelpDesk IP allowlist/blocklist/exception rules if caller passed targetQuery without targetIp on body
+  if (qType === 'ipv4' && !String(req.body?.targetIp || '').trim()) {
+    try {
+      const excCheck = await verifyHelpdeskTargetNotBlocked(target, {
+        forceRefreshIdentity: false,
+        policy: auth.effectivePolicy || null,
+        hasFullAccess: auth.hasFullHelpdeskAccess,
+      });
+      if (excCheck.blocked) {
+        await addHelpdeskSwitchLocatorHistoryInDb({
+          targetQuery: rawQuery,
+          queryType: 'ipv4',
+          resolvedIp: rawQuery,
+          resolvedMac: '',
+          endpointHostname: excCheck.snapshot?.hostname || '',
+          macSource: 'switch_arp_fallback',
+          vendorName: '',
+          matchedSwitchId: '',
+          matchedSwitchName: '',
+          matchedSwitchIp: '',
+          matchedPort: '',
+          vlan: '',
+          reasonCode: 'blocked_by_exception',
+          traceStrategyUsed: traceMode,
+          switchesScannedCount: 0,
+          switchesActiveCount: 0,
+          durationMs: 0,
+          status: 'failed',
+          errorMessage: excCheck.reasonEn.slice(0, 300),
+          actorName: auth.actorName,
+          actorRole: auth.actorRole,
+        }).catch(() => {});
+
+        return res.status(403).json({
+          success: false,
+          blockedByException: true,
+          code: 'HELPDESK_TARGET_BLOCKED',
+          ruleId: excCheck.rule.id,
+          ruleType: excCheck.rule.ruleType,
+          matchedValue: excCheck.matchedValue,
+          error: excCheck.reasonEn,
+          errorFa: excCheck.reasonFa,
+        });
+      }
+    } catch (probeErr: any) {
+      const msg = String(probeErr?.message || 'Failed to verify target exception policy');
+      return res.status(/invalid|required/i.test(msg) ? 400 : 502).json({
+        success: false,
+        error: msg,
+        errorFa: msg,
+      });
+    }
+  }
+
+  let validatedEndpointMac: string | undefined;
+  if (qType === 'mac') {
+    const norm = normalizeMac(rawQuery);
+    if (!norm) {
+      return res.status(400).json({
+        success: false,
+        error: 'Target MAC address has an invalid format.',
+        errorFa: 'فرمت آدرس MAC مقصد نامعتبر است.',
+      });
+    }
+    validatedEndpointMac = norm.standardUpper;
+  } else if (rawEndpointMac) {
+    const norm = normalizeMac(rawEndpointMac);
+    if (!norm) {
+      return res.status(400).json({
+        success: false,
+        error: 'Endpoint MAC override has an invalid format.',
+        errorFa: 'فرمت آدرس MAC انتخابی نامعتبر است.',
+      });
+    }
+    validatedEndpointMac = norm.standardUpper;
+  }
+
+  try {
+    let endpointMacSource: 'client_cached' | 'endpoint_live' | 'switch_arp_fallback' | 'direct_mac' =
+      qType === 'mac'
+        ? 'direct_mac'
+        : validatedEndpointMac
+        ? 'client_cached'
+        : 'switch_arp_fallback';
+    let endpointHostname: string | null = null;
+    let endpointAdapters: Array<{
+      name: string;
+      description: string;
+      status: string;
+      macAddress: string;
+      ipv4Addresses: string[];
+    }> = [];
+    let endpointProbeWarning: string | null = null;
+
+    if (qType === 'ipv4' && target.targetIp && target.username && target.password) {
+      try {
+        const macIdentity = await collectEndpointMacIdentity(target);
+        endpointHostname = macIdentity.hostname || null;
+        endpointAdapters = macIdentity.adapters || [];
+        if (!validatedEndpointMac && macIdentity.primaryMac) {
+          const normPrimary = normalizeMac(macIdentity.primaryMac);
+          if (normPrimary) {
+            validatedEndpointMac = normPrimary.standardUpper;
+            endpointMacSource = 'endpoint_live';
+          }
+        }
+      } catch (probeErr: any) {
+        endpointProbeWarning = String(probeErr?.message || 'Endpoint MAC probe unavailable').slice(0, 220);
+      }
+    }
+
+    // Authoritative PostgreSQL RBAC Device & Port Scoping for Switches/Routers
+    let allowedSwitchIds: string[] | null = null;
+    const canOpenDevicesModule = Boolean(
+      auth.isSuperAdmin || auth.effectivePolicy?.canViewDevices !== false
+    );
+    const canViewSwitchPortsGlobally = Boolean(
+      auth.isSuperAdmin ||
+        !auth.effectivePolicy ||
+        (auth.effectivePolicy.canViewDevices !== false && auth.effectivePolicy.canViewPorts !== false)
+    );
+
+    if (!auth.isSuperAdmin && auth.effectivePolicy) {
+      if (!canViewSwitchPortsGlobally) {
+        allowedSwitchIds = [];
+      } else {
+        const policyScopeSet = Array.isArray(auth.allowedDeviceIds)
+          ? new Set(auth.allowedDeviceIds.map((id) => String(id || '').trim().toLowerCase()))
+          : null;
+        const allDevs = await getAllDevices();
+        allowedSwitchIds = (allDevs || [])
+          .filter((d: any) => {
+            if (!d?.id) return false;
+            if (policyScopeSet !== null && !policyScopeSet.has(String(d.id).trim().toLowerCase())) {
+              return false;
+            }
+            return isDeviceActionPermitted(auth.effectivePolicy, d.id, 'inspect_ports');
+          })
+          .map((d: any) => String(d.id));
+      }
+    }
+
+    const tracker = await searchMacOrIp({
+      query: rawQuery,
+      endpointMac: validatedEndpointMac,
+      forceRefresh,
+      traceMode,
+      operatorUsername: auth.actorName,
+      clientIp: auth.clientIp,
+      allowedDeviceIds: allowedSwitchIds,
+    });
+
+    const matchedSwitchId = tracker.finalEdgePort?.switchId || null;
+    const canInspectMatchedSwitchPorts = Boolean(
+      matchedSwitchId &&
+        (auth.isSuperAdmin ||
+          !auth.effectivePolicy ||
+          (auth.effectivePolicy.canViewDevices !== false &&
+            auth.effectivePolicy.canViewPorts !== false &&
+            isDeviceActionPermitted(auth.effectivePolicy, matchedSwitchId, 'inspect_ports')))
+    );
+    const canOpenMatchedSwitchTerminal = Boolean(
+      matchedSwitchId &&
+        (auth.isSuperAdmin ||
+          !auth.effectivePolicy ||
+          (auth.effectivePolicy.canViewDevices !== false &&
+            isDeviceActionPermitted(auth.effectivePolicy, matchedSwitchId, 'terminal')))
+    );
+
+    const historyStatus: 'success' | 'not_found' =
+      tracker.finalEdgePort || tracker.camEntries.length > 0 ? 'success' : 'not_found';
+
+    const savedHistory = await addHelpdeskSwitchLocatorHistoryInDb({
+      targetQuery: rawQuery,
+      queryType: qType === 'mac' ? 'mac' : 'ipv4',
+      resolvedIp: target.targetIp || tracker.resolvedIp || '',
+      resolvedMac: tracker.resolvedMac || validatedEndpointMac || '',
+      endpointHostname: endpointHostname || '',
+      macSource: endpointMacSource,
+      vendorName: tracker.vendor?.vendor || '',
+      matchedSwitchId: tracker.finalEdgePort?.switchId || '',
+      matchedSwitchName: tracker.finalEdgePort?.switchName || '',
+      matchedSwitchIp: tracker.finalEdgePort?.switchIp || '',
+      matchedPort: tracker.finalEdgePort?.port || '',
+      vlan: tracker.finalEdgePort?.vlan || '',
+      reasonCode: tracker.reasonCode || '',
+      traceStrategyUsed: tracker.traceStrategyUsed || traceMode,
+      switchesScannedCount: tracker.switchesScannedCount || 0,
+      switchesActiveCount: tracker.switchesActiveCount || 0,
+      durationMs: tracker.durationMs || 0,
+      status: historyStatus,
+      errorMessage: '',
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+    }).catch(() => null);
+
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_switch_locator_lookup',
+      title: `ردیابی پورت سوئیچ برای ${rawQuery}`,
+      title_en: `HelpDesk Switch Port & Path Locator: ${rawQuery}`,
+      description: tracker.finalEdgePort
+        ? `پورت متصل کشف شد: ${tracker.finalEdgePort.switchName} (${tracker.finalEdgePort.port}) برای MAC ${tracker.resolvedMac || '-'}.`
+        : `نتیجه ردیابی پورت سوئیچ برای ${rawQuery}: ${tracker.reasonCode || 'mac_not_found'}.`,
+      description_en: tracker.finalEdgePort
+        ? `Located switch port ${tracker.finalEdgePort.switchName} [${tracker.finalEdgePort.port}] for MAC ${tracker.resolvedMac || '-'}.`
+        : `Switch locator result for ${rawQuery}: ${tracker.reasonCode || 'mac_not_found'}.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: tracker.finalEdgePort ? 'success' : 'warning',
+      severity: 'info',
+      targetName: endpointHostname || rawQuery,
+      clientIp: auth.clientIp,
+      metadata: {
+        targetQuery: rawQuery,
+        queryType: qType,
+        resolvedIp: target.targetIp || tracker.resolvedIp || null,
+        resolvedMac: tracker.resolvedMac || validatedEndpointMac || null,
+        endpointMacSource,
+        reasonCode: tracker.reasonCode,
+        switchesScannedCount: tracker.switchesScannedCount,
+        switchesActiveCount: tracker.switchesActiveCount,
+        finalSwitchId: matchedSwitchId,
+        finalPort: tracker.finalEdgePort?.port || null,
+      },
+    }).catch(() => {});
+
+    return res.json({
+      success: true,
+      historyId: savedHistory?.id || null,
+      data: {
+        targetQuery: rawQuery,
+        queryType: qType,
+        targetIp: target.targetIp || tracker.resolvedIp || '',
+        endpointHostname,
+        endpointMacSource,
+        endpointAdapters,
+        endpointProbeWarning,
+        rbac: {
+          canOpenDevicesModule,
+          canInspectMatchedSwitchPorts,
+          canOpenMatchedSwitchTerminal,
+        },
+        tracker,
+      },
+      rateLimit: getHelpdeskRateLimitStatus(auth.actorName),
+    });
+  } catch (err: any) {
+    const msg = String(err?.message || 'Failed to trace target switch port');
+    await addHelpdeskSwitchLocatorHistoryInDb({
+      targetQuery: rawQuery,
+      queryType: qType === 'mac' ? 'mac' : 'ipv4',
+      resolvedIp: target.targetIp || '',
+      resolvedMac: validatedEndpointMac || '',
+      endpointHostname: '',
+      macSource: qType === 'mac' ? 'direct_mac' : 'switch_arp_fallback',
+      vendorName: '',
+      matchedSwitchId: '',
+      matchedSwitchName: '',
+      matchedSwitchIp: '',
+      matchedPort: '',
+      vlan: '',
+      reasonCode: 'error',
+      traceStrategyUsed: traceMode,
+      switchesScannedCount: 0,
+      switchesActiveCount: 0,
+      durationMs: 0,
+      status: 'failed',
+      errorMessage: msg.slice(0, 300),
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+    }).catch(() => {});
+
+    await logHelpdeskErrorAudit({
+      actorName: auth.actorName,
+      actorRole: auth.actorRole,
+      clientIp: auth.clientIp,
+      action: 'helpdesk_switch_locator_failed',
+      title: `خطا در ردیابی پورت سوئیچ برای ${rawQuery}`,
+      title_en: `HelpDesk Switch Port Locator Failed: ${rawQuery}`,
+      targetIp: target.targetIp || rawQuery,
+      errorMsg: msg,
+    });
+    return res.status(/invalid|blocked|required/i.test(msg) ? 400 : 502).json({
+      success: false,
+      error: msg,
+      errorFa: msg,
+    });
+  }
+});
+
+// GET /helpdesk/switch-locator/history - List persisted switch port lookups (all or own scoped by RBAC)
+apiRouter.get('/helpdesk/switch-locator/history', async (req: Request, res: Response) => {
+  try {
+    const auth = await resolveHelpdeskAuth(req, 'switch_locator');
+    if (!auth.ok) {
+      return sendHelpdeskAuthFailure(res, auth);
+    }
+    const canViewAll = Boolean(auth.hasFullHelpdeskAccess || auth.permissions.canViewAllHelpdeskHistory);
+    const actorAliases = canViewAll
+      ? undefined
+      : Array.from(
+          new Set(
+            [auth.actorName, auth.user?.username, auth.user?.fullName]
+              .map((s) => String(s || '').trim())
+              .filter(Boolean)
+          )
+        );
+    const statusRaw = String(req.query.status || 'all').trim().toLowerCase();
+    const statusFilter: 'all' | 'success' | 'not_found' | 'failed' =
+      statusRaw === 'success' || statusRaw === 'not_found' || statusRaw === 'failed' ? statusRaw : 'all';
+    const typeRaw = String(req.query.queryType || 'all').trim().toLowerCase();
+    const typeFilter: 'all' | 'ipv4' | 'mac' =
+      typeRaw === 'ipv4' || typeRaw === 'mac' ? typeRaw : 'all';
+
+    const result = await queryHelpdeskSwitchLocatorHistoryFromDb({
+      search: String(req.query.search || ''),
+      status: statusFilter,
+      queryType: typeFilter,
+      page: Number(req.query.page || 1),
+      pageSize: Number(req.query.pageSize || 15),
+      actorAliases,
+    });
+    return res.json({ success: true, scope: canViewAll ? 'all' : 'own', ...result });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to load Switch Locator history',
+      errorFa: 'خطا در دریافت تاریخچه ردیابی پورت سوئیچ',
+    });
+  }
+});
+
+// DELETE /helpdesk/switch-locator/history/:id - Remove single switch locator history item
+apiRouter.delete('/helpdesk/switch-locator/history/:id', async (req: Request, res: Response) => {
+  try {
+    const auth = await resolveHelpdeskAuth(req, 'switch_locator_history');
+    if (!auth.ok) {
+      return sendHelpdeskAuthFailure(res, auth);
+    }
+    const id = String(req.params.id || '').trim();
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'History record ID is required' });
+    }
+    const canViewAll = Boolean(auth.hasFullHelpdeskAccess || auth.permissions.canViewAllHelpdeskHistory);
+    const actorAliases = canViewAll
+      ? undefined
+      : Array.from(
+          new Set(
+            [auth.actorName, auth.user?.username, auth.user?.fullName]
+              .map((s) => String(s || '').trim())
+              .filter(Boolean)
+          )
+        );
+    const removed = await deleteHelpdeskSwitchLocatorHistoryFromDb(id, actorAliases);
+    if (removed.forbidden) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: You can only delete your own Switch Locator history records.',
+        errorFa: 'عدم دسترسی: شما فقط مجاز به حذف سوابق ردیابی مربوط به خودتان هستید.',
+      });
+    }
+    if (!removed.deleted) {
+      return res.status(404).json({ success: false, error: 'History record not found' });
+    }
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_switch_locator_history_delete_item',
+      title: `حذف یک ردیف از تاریخچه ردیاب پورت سوئیچ (${id})`,
+      title_en: `Deleted Switch Locator History Entry (${id})`,
+      description: `کاربر ${auth.actorName} یک رکورد از تاریخچه ردیابی پورت سوئیچ را حذف کرد.`,
+      description_en: `Operator ${auth.actorName} deleted Switch Locator history item ${id}.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'info',
+      targetName: id,
+      clientIp: auth.clientIp,
+    }).catch(() => {});
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to delete history record',
+    });
+  }
+});
+
+// DELETE /helpdesk/switch-locator/history - Clear switch locator history (own unless full access)
+apiRouter.delete('/helpdesk/switch-locator/history', async (req: Request, res: Response) => {
+  try {
+    const auth = await resolveHelpdeskAuth(req, 'switch_locator_history');
+    if (!auth.ok) {
+      return sendHelpdeskAuthFailure(res, auth);
+    }
+    const canViewAll = Boolean(auth.hasFullHelpdeskAccess || auth.permissions.canViewAllHelpdeskHistory);
+    const actorAliases = canViewAll
+      ? undefined
+      : Array.from(
+          new Set(
+            [auth.actorName, auth.user?.username, auth.user?.fullName]
+              .map((s) => String(s || '').trim())
+              .filter(Boolean)
+          )
+        );
+    const clearedCount = await clearHelpdeskSwitchLocatorHistoryFromDb(actorAliases);
+    await addPortalAuditLog({
+      category: 'helpdesk',
+      action: 'helpdesk_switch_locator_history_clear_all',
+      title: canViewAll
+        ? `پاک‌سازی کامل تاریخچه ردیاب پورت سوئیچ (${clearedCount} رکورد)`
+        : `پاک‌سازی تاریخچه شخصی ردیاب پورت سوئیچ (${clearedCount} رکورد)`,
+      title_en: canViewAll
+        ? `Cleared All Switch Locator History (${clearedCount} records)`
+        : `Cleared Own Switch Locator History (${clearedCount} records)`,
+      description: `کاربر ${auth.actorName} ${canViewAll ? 'کل' : 'سوابق شخصی'} تاریخچه ردیابی پورت سوئیچ (${clearedCount} مورد) را پاک کرد.`,
+      description_en: `Operator ${auth.actorName} cleared ${clearedCount} ${canViewAll ? '' : 'own '}Switch Locator history records.`,
+      userName: auth.actorName,
+      userRole: auth.actorRole,
+      status: 'success',
+      severity: 'warning',
+      targetName: 'helpdesk_switch_locator_history',
+      clientIp: auth.clientIp,
+      metadata: { clearedCount, scope: canViewAll ? 'all' : 'own' },
+    }).catch(() => {});
+    return res.json({ success: true, clearedCount, scope: canViewAll ? 'all' : 'own' });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to clear Switch Locator history',
     });
   }
 });

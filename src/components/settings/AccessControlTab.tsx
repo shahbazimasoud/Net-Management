@@ -421,6 +421,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
       canViewHelpdesk: false,
       canViewHelpdeskUsers: false,
       canViewHelpdeskGroups: false,
+      canViewHelpdeskSwitchLocator: false,
       canRunHelpdeskDiagnostics: false,
       canExecuteHelpdeskActions: false,
       canViewHelpdeskEventViewer: false,
@@ -815,7 +816,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
   // Helper renderers aligned with all 8 AccessPolicyModal tabs
   const getPermittedViewsSummary = (policy: AccessPolicy) => {
     const isSuper = policy.id === 'policy-super-admin' || (policy.priority || 0) >= 100;
-    const total = 19;
+    const total = 20;
     if (isSuper) {
       return { count: total, total, isSuper: true };
     }
@@ -836,6 +837,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
     if (policy.canViewHelpdesk === true) count++;
     if (policy.canViewHelpdeskUsers === true) count++;
     if (policy.canViewHelpdeskGroups === true) count++;
+    if (policy.canViewHelpdeskSwitchLocator === true) count++;
     if (policy.canViewCommunications === true) count++;
     if (policy.canViewSessionRecordings === true) count++;
     if (policy.canViewSettings === true) count++;
@@ -1112,8 +1114,9 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
     const hasEndpoint = isSuper || Boolean(policy.canViewHelpdesk);
     const hasAdUser = isSuper || Boolean(policy.canViewHelpdeskUsers);
     const hasAdGroup = isSuper || Boolean(policy.canViewHelpdeskGroups);
+    const hasSwitchLocator = isSuper || Boolean(policy.canViewHelpdeskSwitchLocator);
 
-    if (!hasEndpoint && !hasAdUser && !hasAdGroup) {
+    if (!hasEndpoint && !hasAdUser && !hasAdGroup && !hasSwitchLocator) {
       return (
         <span className={`text-[10px] font-mono ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>
           {isEn ? 'Disabled' : 'غیرفعال'}
@@ -1150,6 +1153,13 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
               isLight ? 'bg-indigo-100 text-indigo-800' : 'bg-indigo-500/20 text-indigo-300'
             }`}>
               AD-G
+            </span>
+          )}
+          {hasSwitchLocator && (
+            <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
+              isLight ? 'bg-cyan-100 text-cyan-800' : 'bg-cyan-500/20 text-cyan-300'
+            }`}>
+              SW-P
             </span>
           )}
           {(isSuper || policy.canUnlockHelpdeskDomainUsers) && (

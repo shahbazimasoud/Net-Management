@@ -317,6 +317,7 @@ export interface FallbackStore {
   helpdesk_connection_history?: HelpdeskConnectionHistoryRecord[];
   helpdesk_user_history?: HelpdeskUserHistoryRecord[];
   helpdesk_group_history?: HelpdeskGroupHistoryRecord[];
+  helpdesk_switch_locator_history?: HelpdeskSwitchLocatorHistoryRecord[];
   helpdesk_exceptions?: HelpdeskExceptionRecord[];
 }
 
@@ -404,6 +405,32 @@ export interface HelpdeskGroupHistoryRecord {
   errorMessage?: string;
   actionType: 'inspect' | 'add_member' | 'remove_member';
   actionTargetMember?: string;
+  actorName: string;
+  actorRole: string;
+  checkedAt: string;
+}
+
+export interface HelpdeskSwitchLocatorHistoryRecord {
+  id: string;
+  targetQuery: string;
+  queryType: 'ipv4' | 'mac';
+  resolvedIp: string;
+  resolvedMac: string;
+  endpointHostname: string;
+  macSource: 'client_cached' | 'endpoint_live' | 'switch_arp_fallback' | 'direct_mac';
+  vendorName: string;
+  matchedSwitchId: string;
+  matchedSwitchName: string;
+  matchedSwitchIp: string;
+  matchedPort: string;
+  vlan: string;
+  reasonCode: string;
+  traceStrategyUsed: 'fast_hop' | 'full_parallel';
+  switchesScannedCount: number;
+  switchesActiveCount: number;
+  durationMs: number;
+  status: 'success' | 'not_found' | 'failed';
+  errorMessage?: string;
   actorName: string;
   actorRole: string;
   checkedAt: string;
@@ -656,6 +683,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canViewHelpdesk: true,
     canViewHelpdeskUsers: true,
     canViewHelpdeskGroups: true,
+    canViewHelpdeskSwitchLocator: true,
     canRunHelpdeskDiagnostics: true,
     canExecuteHelpdeskActions: true,
     canViewHelpdeskEventViewer: true,
@@ -771,6 +799,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canViewHelpdesk: true,
     canViewHelpdeskUsers: false,
     canViewHelpdeskGroups: false,
+    canViewHelpdeskSwitchLocator: false,
     canRunHelpdeskDiagnostics: true,
     canExecuteHelpdeskActions: false,
     canViewHelpdeskEventViewer: true,
@@ -886,6 +915,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canViewHelpdesk: true,
     canViewHelpdeskUsers: true,
     canViewHelpdeskGroups: true,
+    canViewHelpdeskSwitchLocator: true,
     canRunHelpdeskDiagnostics: true,
     canExecuteHelpdeskActions: true,
     canViewHelpdeskEventViewer: true,
@@ -2057,6 +2087,13 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
         const isHelpdesk = r.id === 'policy-helpdesk' || r.id === 'policy-helpdesk-tech';
         pData.canViewHelpdeskGroups =
           isSuper || isHelpdesk || (Boolean(pData.canViewHelpdesk) && Boolean(pData.canInspectHelpdeskDomainUsers));
+        changed = true;
+      }
+      if (pData.canViewHelpdeskSwitchLocator === undefined) {
+        const isSuper = r.id === 'policy-super-admin' || (r.priority || 0) >= 100;
+        const isHelpdesk = r.id === 'policy-helpdesk' || r.id === 'policy-helpdesk-tech';
+        pData.canViewHelpdeskSwitchLocator =
+          isSuper || isHelpdesk || (Boolean(pData.canViewHelpdesk) && Boolean(pData.canRunHelpdeskDiagnostics));
         changed = true;
       }
       if (pData.canUnlockHelpdeskDomainUsers === undefined) {
@@ -3306,6 +3343,18 @@ export async function initDatabase(): Promise<void> {
       `);
       await client.query(
         "CREATE INDEX IF NOT EXISTS idx_helpdesk_user_history_ts ON helpdesk_user_history(checked_at DESC)"
+      );
+
+      // 36. HelpDesk Switch Port & Path Locator History (Non-Secret Metadata Only — Zero Passwords!)
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS helpdesk_switch_locator_history (
+          id VARCHAR(128) PRIMARY KEY,
+          data JSONB NOT NULL,
+          checked_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query(
+        "CREATE INDEX IF NOT EXISTS idx_helpdesk_switch_locator_history_ts ON helpdesk_switch_locator_history(checked_at DESC)"
       );
     } catch {}
 
@@ -5280,6 +5329,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canViewHelpdesk: false,
       canViewHelpdeskUsers: false,
       canViewHelpdeskGroups: false,
+      canViewHelpdeskSwitchLocator: false,
       canRunHelpdeskDiagnostics: false,
       canExecuteHelpdeskActions: false,
       canViewHelpdeskEventViewer: false,
@@ -5666,6 +5716,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canViewHelpdesk: true,
       canViewHelpdeskUsers: true,
       canViewHelpdeskGroups: true,
+      canViewHelpdeskSwitchLocator: true,
       canRunHelpdeskDiagnostics: true,
       canExecuteHelpdeskActions: true,
       canViewHelpdeskEventViewer: true,
@@ -5813,6 +5864,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     canViewHelpdesk: false,
     canViewHelpdeskUsers: false,
     canViewHelpdeskGroups: false,
+    canViewHelpdeskSwitchLocator: false,
     canRunHelpdeskDiagnostics: false,
     canExecuteHelpdeskActions: false,
     canViewHelpdeskEventViewer: false,
@@ -16752,6 +16804,322 @@ export async function deleteHelpdeskExceptionInDb(id: string): Promise<boolean> 
   }
   return deletedInPg || store.helpdesk_exceptions.length < beforeLen;
 }
+
+// ============================================================================
+// HelpDesk Physical Switch Port & Path Locator History (Zero Passwords!)
+// ============================================================================
+
+async function ensureHelpdeskSwitchLocatorHistoryTable(): Promise<void> {
+  if (!isPostgresReady || !pool) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS helpdesk_switch_locator_history (
+      id VARCHAR(128) PRIMARY KEY,
+      data JSONB NOT NULL,
+      checked_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query(
+    "CREATE INDEX IF NOT EXISTS idx_helpdesk_switch_locator_history_ts ON helpdesk_switch_locator_history(checked_at DESC)"
+  );
+}
+
+export async function addHelpdeskSwitchLocatorHistoryInDb(
+  entry: Omit<HelpdeskSwitchLocatorHistoryRecord, 'id' | 'checkedAt'> & {
+    id?: string;
+    checkedAt?: string;
+  }
+): Promise<HelpdeskSwitchLocatorHistoryRecord> {
+  const rec: HelpdeskSwitchLocatorHistoryRecord = {
+    id: entry.id || `hdswloc_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+    targetQuery: String(entry.targetQuery || '').trim(),
+    queryType: entry.queryType === 'mac' ? 'mac' : 'ipv4',
+    resolvedIp: String(entry.resolvedIp || '').trim(),
+    resolvedMac: String(entry.resolvedMac || '').trim(),
+    endpointHostname: String(entry.endpointHostname || '').trim(),
+    macSource:
+      entry.macSource === 'endpoint_live' ||
+      entry.macSource === 'client_cached' ||
+      entry.macSource === 'direct_mac'
+        ? entry.macSource
+        : 'switch_arp_fallback',
+    vendorName: String(entry.vendorName || '').trim(),
+    matchedSwitchId: String(entry.matchedSwitchId || '').trim(),
+    matchedSwitchName: String(entry.matchedSwitchName || '').trim(),
+    matchedSwitchIp: String(entry.matchedSwitchIp || '').trim(),
+    matchedPort: String(entry.matchedPort || '').trim(),
+    vlan: String(entry.vlan || '').trim(),
+    reasonCode: String(entry.reasonCode || '').trim(),
+    traceStrategyUsed: entry.traceStrategyUsed === 'full_parallel' ? 'full_parallel' : 'fast_hop',
+    switchesScannedCount: Number(entry.switchesScannedCount || 0),
+    switchesActiveCount: Number(entry.switchesActiveCount || 0),
+    durationMs: Number(entry.durationMs || 0),
+    status:
+      entry.status === 'failed'
+        ? 'failed'
+        : entry.status === 'not_found'
+        ? 'not_found'
+        : 'success',
+    errorMessage: entry.errorMessage ? String(entry.errorMessage).slice(0, 300) : '',
+    actorName: String(entry.actorName || '').trim(),
+    actorRole: String(entry.actorRole || '').trim(),
+    checkedAt: entry.checkedAt || new Date().toISOString(),
+  };
+
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.helpdesk_switch_locator_history)) {
+    store.helpdesk_switch_locator_history = [];
+  }
+  store.helpdesk_switch_locator_history.unshift(rec);
+  if (store.helpdesk_switch_locator_history.length > 2000) {
+    store.helpdesk_switch_locator_history = store.helpdesk_switch_locator_history.slice(0, 2000);
+  }
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskSwitchLocatorHistoryTable();
+      await pool.query(
+        `INSERT INTO helpdesk_switch_locator_history (id, data, checked_at)
+         VALUES ($1, $2::jsonb, $3::timestamptz)
+         ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, checked_at = EXCLUDED.checked_at`,
+        [rec.id, JSON.stringify(rec), rec.checkedAt]
+      );
+    } catch (e: any) {
+      console.warn('[DB] addHelpdeskSwitchLocatorHistoryInDb error:', e?.message || e);
+    }
+  }
+  return rec;
+}
+
+export async function queryHelpdeskSwitchLocatorHistoryFromDb(params: {
+  search?: string;
+  status?: 'all' | 'success' | 'not_found' | 'failed';
+  queryType?: 'all' | 'ipv4' | 'mac';
+  page?: number;
+  pageSize?: number;
+  actorAliases?: string[];
+}): Promise<{
+  items: HelpdeskSwitchLocatorHistoryRecord[];
+  total: number;
+  page: number;
+  pageSize: number;
+  stats: {
+    totalLookups: number;
+    uniqueTargets: number;
+    foundCount: number;
+    notFoundCount: number;
+    failedCount: number;
+    lastCheckedAt: string | null;
+    lastTargetQuery: string | null;
+  };
+}> {
+  let allRecords: HelpdeskSwitchLocatorHistoryRecord[] = [];
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskSwitchLocatorHistoryTable();
+      const res = await pool.query(
+        `SELECT data FROM helpdesk_switch_locator_history ORDER BY checked_at DESC LIMIT 2000`
+      );
+      allRecords = res.rows.map((r: any) => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data));
+      if (allRecords.length === 0) {
+        const fb = loadFallbackStore();
+        if (
+          Array.isArray(fb.helpdesk_switch_locator_history) &&
+          fb.helpdesk_switch_locator_history.length > 0
+        ) {
+          allRecords = fb.helpdesk_switch_locator_history;
+          for (const item of allRecords.slice(0, 500)) {
+            if (item?.id) {
+              await pool.query(
+                `INSERT INTO helpdesk_switch_locator_history (id, data, checked_at)
+                 VALUES ($1, $2::jsonb, $3::timestamptz)
+                 ON CONFLICT (id) DO NOTHING`,
+                [String(item.id), JSON.stringify(item), item.checkedAt || new Date().toISOString()]
+              );
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn('[DB] queryHelpdeskSwitchLocatorHistoryFromDb fallback:', e?.message || e);
+      const fb = loadFallbackStore();
+      allRecords = Array.isArray(fb.helpdesk_switch_locator_history)
+        ? fb.helpdesk_switch_locator_history
+        : [];
+    }
+  } else {
+    const fb = loadFallbackStore();
+    allRecords = Array.isArray(fb.helpdesk_switch_locator_history)
+      ? fb.helpdesk_switch_locator_history
+      : [];
+  }
+
+  allRecords = [...allRecords].sort(
+    (a, b) => new Date(b.checkedAt || 0).getTime() - new Date(a.checkedAt || 0).getTime()
+  );
+
+  const actorSet = normalizeActorMatchSet(params.actorAliases);
+  if (actorSet) {
+    allRecords = allRecords.filter((r) => actorSet.has(String(r.actorName || '').trim().toLowerCase()));
+  }
+
+  const uniqueTargets = new Set<string>();
+  let foundCount = 0;
+  let notFoundCount = 0;
+  let failedCount = 0;
+  for (const r of allRecords) {
+    const k = (r.resolvedMac || r.resolvedIp || r.targetQuery || '').toLowerCase();
+    if (k) uniqueTargets.add(k);
+    if (r.status === 'failed') failedCount++;
+    else if (r.status === 'not_found') notFoundCount++;
+    else foundCount++;
+  }
+
+  const q = String(params.search || '').trim().toLowerCase();
+  const statusFilter = params.status || 'all';
+  const typeFilter = params.queryType || 'all';
+
+  const filtered = allRecords.filter((r) => {
+    if (statusFilter !== 'all' && r.status !== statusFilter) return false;
+    if (typeFilter !== 'all' && r.queryType !== typeFilter) return false;
+    if (!q) return true;
+    return (
+      String(r.targetQuery || '').toLowerCase().includes(q) ||
+      String(r.resolvedIp || '').toLowerCase().includes(q) ||
+      String(r.resolvedMac || '').toLowerCase().includes(q) ||
+      String(r.endpointHostname || '').toLowerCase().includes(q) ||
+      String(r.matchedSwitchName || '').toLowerCase().includes(q) ||
+      String(r.matchedSwitchIp || '').toLowerCase().includes(q) ||
+      String(r.matchedPort || '').toLowerCase().includes(q) ||
+      String(r.vlan || '').toLowerCase().includes(q) ||
+      String(r.vendorName || '').toLowerCase().includes(q) ||
+      String(r.actorName || '').toLowerCase().includes(q)
+    );
+  });
+
+  const pageSize = Math.max(5, Math.min(100, Number(params.pageSize) || 15));
+  const total = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.max(1, Math.min(totalPages, Number(params.page) || 1));
+  const start = (page - 1) * pageSize;
+
+  return {
+    items: filtered.slice(start, start + pageSize),
+    total,
+    page,
+    pageSize,
+    stats: {
+      totalLookups: allRecords.length,
+      uniqueTargets: uniqueTargets.size,
+      foundCount,
+      notFoundCount,
+      failedCount,
+      lastCheckedAt: allRecords[0]?.checkedAt || null,
+      lastTargetQuery: allRecords[0]?.targetQuery || null,
+    },
+  };
+}
+
+export async function deleteHelpdeskSwitchLocatorHistoryFromDb(
+  id: string,
+  actorAliases?: string[]
+): Promise<{ deleted: boolean; forbidden?: boolean }> {
+  const actorSet = normalizeActorMatchSet(actorAliases);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool && actorSet) {
+    try {
+      await ensureHelpdeskSwitchLocatorHistoryTable();
+      const chk = await pool.query(
+        `SELECT data FROM helpdesk_switch_locator_history WHERE id = $1`,
+        [id]
+      );
+      if (chk.rows.length > 0) {
+        const rec =
+          typeof chk.rows[0].data === 'string' ? JSON.parse(chk.rows[0].data) : chk.rows[0].data;
+        const owner = String(rec?.actorName || '').trim().toLowerCase();
+        if (!actorSet.has(owner)) {
+          return { deleted: false, forbidden: true };
+        }
+      }
+    } catch {}
+  }
+
+  const store = loadFallbackStore();
+  const list: any[] = Array.isArray(store.helpdesk_switch_locator_history)
+    ? store.helpdesk_switch_locator_history
+    : [];
+  const fbMatch = list.find((h: any) => h.id === id);
+  if (
+    fbMatch &&
+    actorSet &&
+    !actorSet.has(String(fbMatch.actorName || '').trim().toLowerCase())
+  ) {
+    return { deleted: false, forbidden: true };
+  }
+
+  const beforeLen = list.length;
+  store.helpdesk_switch_locator_history = list.filter((h: any) => h.id !== id);
+  saveFallbackStore(store);
+
+  let deletedInPg = false;
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskSwitchLocatorHistoryTable();
+      const res = await pool.query(`DELETE FROM helpdesk_switch_locator_history WHERE id = $1`, [id]);
+      deletedInPg = (res.rowCount || 0) > 0;
+    } catch (e: any) {
+      console.warn('[DB] deleteHelpdeskSwitchLocatorHistoryFromDb error:', e?.message || e);
+    }
+  }
+  return { deleted: deletedInPg || store.helpdesk_switch_locator_history.length < beforeLen };
+}
+
+export async function clearHelpdeskSwitchLocatorHistoryFromDb(
+  actorAliases?: string[]
+): Promise<number> {
+  const actorSet = normalizeActorMatchSet(actorAliases);
+  const store = loadFallbackStore();
+  const list: any[] = Array.isArray(store.helpdesk_switch_locator_history)
+    ? store.helpdesk_switch_locator_history
+    : [];
+  let fbRemoved = 0;
+
+  if (actorSet) {
+    store.helpdesk_switch_locator_history = list.filter((h: any) => {
+      const owned = actorSet.has(String(h?.actorName || '').trim().toLowerCase());
+      if (owned) fbRemoved++;
+      return !owned;
+    });
+  } else {
+    fbRemoved = list.length;
+    store.helpdesk_switch_locator_history = [];
+  }
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await ensureHelpdeskSwitchLocatorHistoryTable();
+      if (actorSet) {
+        const res = await pool.query(
+          `DELETE FROM helpdesk_switch_locator_history WHERE LOWER(COALESCE(data->>'actorName', '')) = ANY($1::text[])`,
+          [Array.from(actorSet)]
+        );
+        return Math.max(fbRemoved, res.rowCount || 0);
+      } else {
+        const res = await pool.query(`DELETE FROM helpdesk_switch_locator_history`);
+        return Math.max(fbRemoved, res.rowCount || 0);
+      }
+    } catch (e: any) {
+      console.warn('[DB] clearHelpdeskSwitchLocatorHistoryFromDb error:', e?.message || e);
+    }
+  }
+  return fbRemoved;
+}
+
 
 
 

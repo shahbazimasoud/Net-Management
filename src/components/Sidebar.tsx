@@ -34,6 +34,7 @@ import {
   Video,
   Lock,
   Headphones,
+  Waypoints,
   X
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
@@ -82,6 +83,7 @@ export type ActiveTab =
   | 'helpdesk'
   | 'helpdesk-users'
   | 'helpdesk-groups'
+  | 'helpdesk-switch-locator'
   | 'settings'
   | 'settings-groups'
   | 'settings-users'
@@ -288,6 +290,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           labelKey: 'tab_helpdesk_groups',
           icon: Users,
           badge: 'Group',
+        },
+        {
+          id: 'helpdesk-switch-locator',
+          labelKey: 'tab_helpdesk_switch_locator',
+          icon: Waypoints,
+          badge: 'Port',
         },
       ],
     },
