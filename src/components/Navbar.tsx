@@ -421,10 +421,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                           }`}
                         />
                         <div className="flex-1 min-w-0">
-                          <div className="text-xs font-semibold truncate">
+                          <div
+                            dir={item.metadata?.subjectDir || 'auto'}
+                            className="text-xs font-semibold truncate"
+                          >
                             {isEn ? item.titleEn || item.title : item.title || item.titleEn}
                           </div>
-                          <div className="text-[11px] opacity-75 line-clamp-1 mt-0.5">
+                          <div
+                            dir={item.metadata?.bodyDir || 'auto'}
+                            className="text-[11px] opacity-75 line-clamp-1 mt-0.5"
+                          >
                             {isEn ? item.summaryEn || item.summary : item.summary || item.summaryEn}
                           </div>
                           <div className="text-[10px] opacity-60 mt-0.5 font-mono tabular-nums">

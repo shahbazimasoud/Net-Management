@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.504.2';
+export const APP_VERSION = '1.505.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.505.0',
+    releaseDate: '2026-11-28',
+    type: 'minor',
+    title: 'افزودن ویرایشگر پیشرفته متن (Rich Text) و پشتیبانی کامل از راست‌به‌چپ/چپ‌به‌چپ و چیدمان در ارسال پیام و اطلاعیه رسمی',
+    title_en: 'Add Rich Text Editor, RTL/LTR Direction & Alignment Controls for Subject and Message Body in Team Message / Official Announcement Composer',
+    changes: [
+      'افزودن کنترل‌های تغییر جهت متن (`RTL`، `LTR`، `خودکار`)، چیدمان (`راست‌چین`، `وسط‌چین`، `چپ‌چین`) و درج سریع ایموجی برای فیلد «عنوان پیام» (`Subject Title`) در پنجره ارسال پیام تیمی یا اطلاعیه رسمی (`CommunicationsCenterView`).',
+      'طراحی و پیاده‌سازی ویرایشگر پیشرفته متن (`RichMessageEditor.tsx`) برای «متن کامل پیام» (`Message Body`) شامل: تغییر جهت RTL/LTR (برای کل پیام و هر پاراگراف به‌صورت مجزا)، ترازبندی راست/وسط/چپ/تراز کامل، ضخیم (`Bold`)، کج (`Italic`)، زیرخط (`Underline`)، خط‌خورده (`Strike`)، تیترها و نقل‌قول، بلوک و کد خطی، فهرست نقطه‌ای و شماره‌دار، رنگ متن و هایلایت پس‌زمینه، درج لینک معتبر و درج اسمایل و ایموجی.',
+      'افزودن پاک‌سازی امن سمت سرور و کلاینت (`richMessageSanitizer.ts`) با لیست مجاز تگ‌ها و اعتبارسنجی لینک‌ها، رندر ایمن React بدون `dangerouslySetInnerHTML` (`SafeRichMessageContent.tsx`) و پشتیبانی در ردیاب مطالعه اطلاعیه‌ها و ایمیل‌های اعلانات (`emailService.ts`).'
+    ],
+    changes_en: [
+      'Added explicit `RTL`, `LTR`, and `Auto` text-direction toggles, alignment controls (`Right`, `Center`, `Left`), and quick emoji insertion to the `Subject Title` field in the Send Team Message or Official Announcement modal (`CommunicationsCenterView`).',
+      'Built `RichMessageEditor.tsx` for `Message Body` with per-block and message-level RTL/LTR direction switching, Right/Center/Left/Justify alignment, Bold, Italic, Underline, Strikethrough, Headings, Blockquote, Inline/Block Code, Bullet & Numbered Lists, Text Color & Highlight pickers, validated Hyperlink insertion, Smiley/Emoji picker, Undo/Redo, and Clear Formatting.',
+      'Implemented allowlisted HTML sanitization and plain-text summary extraction (`richMessageSanitizer.ts`) across client and `server/commsService.ts`, pure JSX AST rendering (`SafeRichMessageContent.tsx`) without `dangerouslySetInnerHTML`, and synchronized rich formatting/direction support in Inbox Detail, Navbar tray, Announcement Tracker, and outgoing emails (`server/emailService.ts`).'
+    ]
+  },
   {
     version: '1.504.2',
     releaseDate: '2026-11-28',

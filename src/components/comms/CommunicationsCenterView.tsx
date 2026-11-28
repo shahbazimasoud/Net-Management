@@ -33,6 +33,10 @@ import {
   BarChart3,
   XCircle,
   Settings,
+  AlignRight,
+  AlignCenter,
+  AlignLeft,
+  Smile,
 } from 'lucide-react';
 import {
   ActionApprovalRequest,
@@ -80,6 +84,9 @@ import { ActiveTab } from '../Sidebar';
 import { TeamChannelsPane } from './TeamChannelsPane';
 import { AnnouncementTrackerPane } from './AnnouncementTrackerPane';
 import { ApprovalsQueuePane } from './ApprovalsQueuePane';
+import { RichMessageEditor, EMOJI_CATEGORIES } from './RichMessageEditor';
+import { SafeRichMessageContent } from './SafeRichMessageContent';
+import { RichTextAlign, RichTextDir } from '../../utils/richMessageSanitizer';
 
 interface CommunicationsCenterViewProps {
   isLightMode?: boolean;
@@ -212,12 +219,40 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
   const [composeSeverity, setComposeSeverity] = useState<CommsSeverity>('info');
   const [composeTitle, setComposeTitle] = useState('');
   const [composeBody, setComposeBody] = useState('');
+  const [composeBodyHtml, setComposeBodyHtml] = useState('');
+  const [composeSubjectDir, setComposeSubjectDir] = useState<RichTextDir>(() =>
+    isRtl ? 'rtl' : 'ltr'
+  );
+  const [composeSubjectAlign, setComposeSubjectAlign] = useState<
+    'auto' | 'right' | 'center' | 'left'
+  >('auto');
+  const [composeBodyDir, setComposeBodyDir] = useState<RichTextDir>(() =>
+    isRtl ? 'rtl' : 'ltr'
+  );
+  const [composeBodyAlign, setComposeBodyAlign] = useState<RichTextAlign>('auto');
+  const [subjectEmojiOpen, setSubjectEmojiOpen] = useState(false);
+  const subjectInputRef = useRef<HTMLInputElement | null>(null);
+  const subjectEmojiBoxRef = useRef<HTMLDivElement | null>(null);
   const [composeRequiresAck, setComposeRequiresAck] = useState(false);
   const [composeSending, setComposeSending] = useState(false);
   const [composeFeedback, setComposeFeedback] = useState<{
     type: 'success' | 'error';
     text: string;
   } | null>(null);
+
+  useEffect(() => {
+    if (!subjectEmojiOpen) return;
+    const onOutside = (e: MouseEvent) => {
+      if (
+        subjectEmojiBoxRef.current &&
+        !subjectEmojiBoxRef.current.contains(e.target as Node)
+      ) {
+        setSubjectEmojiOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onOutside);
+    return () => document.removeEventListener('mousedown', onOutside);
+  }, [subjectEmojiOpen]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -687,6 +722,13 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
     undockModal(COMPOSE_MODAL_ID);
     setComposeFeedback(null);
     setComposeRecipientQuery('');
+    setSubjectEmojiOpen(false);
+    if (!composeTitle && !composeBody && !composeBodyHtml) {
+      setComposeSubjectDir(isRtl ? 'rtl' : 'ltr');
+      setComposeSubjectAlign('auto');
+      setComposeBodyDir(isRtl ? 'rtl' : 'ltr');
+      setComposeBodyAlign('auto');
+    }
     setComposeOpen(true);
     if (recipients.length === 0) {
       setRecipientsLoading(true);
@@ -700,6 +742,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
 
   const handleMinimizeCompose = () => {
     setComposeOpen(false);
+    setSubjectEmojiOpen(false);
     dockModal({
       id: COMPOSE_MODAL_ID,
       labelEn: 'Compose Message',
@@ -712,8 +755,28 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
 
   const handleCloseCompose = () => {
     setComposeOpen(false);
+    setSubjectEmojiOpen(false);
     setComposeRecipientQuery('');
     undockModal(COMPOSE_MODAL_ID);
+  };
+
+  const insertSubjectEmoji = (emoji: string) => {
+    const inp = subjectInputRef.current;
+    if (!inp) {
+      setComposeTitle((prev) => `${prev}${emoji}`);
+      setSubjectEmojiOpen(false);
+      return;
+    }
+    const start = inp.selectionStart ?? composeTitle.length;
+    const end = inp.selectionEnd ?? composeTitle.length;
+    const nextVal = `${composeTitle.slice(0, start)}${emoji}${composeTitle.slice(end)}`;
+    setComposeTitle(nextVal);
+    setSubjectEmojiOpen(false);
+    requestAnimationFrame(() => {
+      inp.focus();
+      const pos = start + emoji.length;
+      inp.setSelectionRange(pos, pos);
+    });
   };
 
   const handleSubmitCompose = async (e: React.FormEvent) => {
@@ -745,11 +808,19 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
         titleEn: composeTitle.trim(),
         body: composeBody.trim(),
         bodyEn: composeBody.trim(),
+        ...(composeBodyHtml.trim()
+          ? { bodyHtml: composeBodyHtml.trim(), bodyHtmlEn: composeBodyHtml.trim() }
+          : {}),
+        subjectDir: composeSubjectDir,
+        subjectAlign: composeSubjectAlign,
+        bodyDir: composeBodyDir,
+        bodyAlign: composeBodyAlign,
         requiresAcknowledgment: composeRequiresAck,
       };
       const result = await dispatchCommsMessage(payload);
       setComposeTitle('');
       setComposeBody('');
+      setComposeBodyHtml('');
       setComposeTargetIds([]);
       setComposeRecipientQuery('');
       setComposeRequiresAck(false);
@@ -1605,6 +1676,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                             />
                           )}
                           <span
+                            dir={item.metadata?.subjectDir || 'auto'}
                             className={`text-xs truncate ${
                               !item.isRead
                                 ? isLightMode
@@ -1628,6 +1700,7 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                       </div>
 
                       <p
+                        dir={item.metadata?.bodyDir || 'auto'}
                         className={`text-[11px] line-clamp-1 mt-0.5 ${
                           isLightMode ? 'text-slate-600' : 'text-slate-400'
                         }`}
@@ -1821,9 +1894,20 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                 </div>
 
                 <h3
+                  dir={selectedItem.metadata?.subjectDir || 'auto'}
                   className={`text-base sm:text-lg font-bold leading-snug ${
-                    isLightMode ? 'text-slate-900' : 'text-white'
-                  }`}
+                    selectedItem.metadata?.subjectAlign === 'right'
+                      ? 'text-right'
+                      : selectedItem.metadata?.subjectAlign === 'left'
+                      ? 'text-left'
+                      : selectedItem.metadata?.subjectAlign === 'center'
+                      ? 'text-center'
+                      : selectedItem.metadata?.subjectDir === 'rtl'
+                      ? 'text-right'
+                      : selectedItem.metadata?.subjectDir === 'ltr'
+                      ? 'text-left'
+                      : ''
+                  } ${isLightMode ? 'text-slate-900' : 'text-white'}`}
                 >
                   {getItemTitle(selectedItem)}
                 </h3>
@@ -1848,15 +1932,49 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
               </div>
 
               {/* Message Body */}
-              <div
-                className={`p-4 rounded-xl border text-xs sm:text-sm leading-relaxed whitespace-pre-wrap ${
-                  isLightMode
-                    ? 'bg-slate-50 border-slate-200 text-slate-800'
-                    : 'bg-slate-950/50 border-white/10 text-slate-200'
-                }`}
-              >
-                {getItemBody(selectedItem)}
-              </div>
+              {(() => {
+                const richHtml = isEn
+                  ? selectedItem.metadata?.bodyHtmlEn || selectedItem.metadata?.bodyHtml
+                  : selectedItem.metadata?.bodyHtml || selectedItem.metadata?.bodyHtmlEn;
+                const bodyDirMeta = selectedItem.metadata?.bodyDir as RichTextDir | undefined;
+                const bodyAlignMeta = selectedItem.metadata?.bodyAlign as RichTextAlign | undefined;
+
+                return (
+                  <div
+                    dir={bodyDirMeta || 'auto'}
+                    className={`p-4 rounded-xl border ${
+                      isLightMode
+                        ? 'bg-slate-50 border-slate-200 text-slate-800'
+                        : 'bg-slate-950/50 border-white/10 text-slate-200'
+                    }`}
+                  >
+                    {typeof richHtml === 'string' && richHtml.trim() ? (
+                      <SafeRichMessageContent
+                        html={richHtml}
+                        dir={bodyDirMeta}
+                        align={bodyAlignMeta}
+                        isLightMode={isLightMode}
+                      />
+                    ) : (
+                      <div
+                        className={`text-xs sm:text-sm leading-relaxed whitespace-pre-wrap ${
+                          bodyAlignMeta === 'right'
+                            ? 'text-right'
+                            : bodyAlignMeta === 'left'
+                            ? 'text-left'
+                            : bodyAlignMeta === 'center'
+                            ? 'text-center'
+                            : bodyAlignMeta === 'justify'
+                            ? 'text-justify'
+                            : ''
+                        }`}
+                      >
+                        {getItemBody(selectedItem)}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Linked Entity Context & Direct Jump */}
               {(selectedItem.linkedEntityName || selectedItem.actionTab) && (
@@ -2920,13 +3038,160 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                   )}
                 </div>
 
-                {/* Title */}
-                <div>
-                  <label className="block text-xs font-semibold mb-1.5">
-                    {isEn ? 'Subject Title' : 'عنوان پیام'}
-                  </label>
+                {/* Title with Direction, Alignment & Emoji Controls */}
+                <div ref={subjectEmojiBoxRef} className="relative">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                    <label className="text-xs font-semibold">
+                      {isEn ? 'Subject Title' : 'عنوان پیام'}
+                    </label>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {/* Subject Direction: RTL / LTR / Auto */}
+                      <div
+                        className={`flex items-center gap-0.5 p-0.5 rounded-lg border ${
+                          isLightMode
+                            ? 'bg-slate-50 border-slate-200'
+                            : 'bg-slate-950 border-slate-800'
+                        }`}
+                      >
+                        {(
+                          [
+                            { id: 'rtl' as const, label: 'RTL', titleEn: 'Right-to-Left', titleFa: 'راست‌به‌چپ' },
+                            { id: 'ltr' as const, label: 'LTR', titleEn: 'Left-to-Right', titleFa: 'چپ‌به‌چپ' },
+                            { id: 'auto' as const, label: isEn ? 'Auto' : 'خودکار', titleEn: 'Auto detect direction', titleFa: 'تشخیص خودکار جهت' },
+                          ]
+                        ).map((d) => (
+                          <button
+                            key={d.id}
+                            type="button"
+                            onClick={() => {
+                              setComposeSubjectDir(d.id);
+                              if (d.id === 'rtl' && composeSubjectAlign === 'left') {
+                                setComposeSubjectAlign('right');
+                              } else if (d.id === 'ltr' && composeSubjectAlign === 'right') {
+                                setComposeSubjectAlign('left');
+                              }
+                            }}
+                            title={isEn ? d.titleEn : d.titleFa}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                              composeSubjectDir === d.id
+                                ? 'bg-indigo-600 text-white'
+                                : isLightMode
+                                ? 'text-slate-600 hover:bg-slate-200/70'
+                                : 'text-slate-400 hover:bg-white/10 hover:text-white'
+                            }`}
+                          >
+                            {d.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Subject Alignment: Right / Center / Left */}
+                      <div
+                        className={`flex items-center gap-0.5 p-0.5 rounded-lg border ${
+                          isLightMode
+                            ? 'bg-slate-50 border-slate-200'
+                            : 'bg-slate-950 border-slate-800'
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setComposeSubjectAlign((prev) => (prev === 'right' ? 'auto' : 'right'))
+                          }
+                          title={isEn ? 'Align Right' : 'راست‌چین'}
+                          className={`p-1 rounded transition cursor-pointer ${
+                            composeSubjectAlign === 'right' ||
+                            (composeSubjectAlign === 'auto' && composeSubjectDir === 'rtl')
+                              ? 'bg-indigo-600 text-white'
+                              : isLightMode
+                              ? 'text-slate-600 hover:bg-slate-200/70'
+                              : 'text-slate-400 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          <AlignRight className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setComposeSubjectAlign((prev) => (prev === 'center' ? 'auto' : 'center'))
+                          }
+                          title={isEn ? 'Align Center' : 'وسط‌چین'}
+                          className={`p-1 rounded transition cursor-pointer ${
+                            composeSubjectAlign === 'center'
+                              ? 'bg-indigo-600 text-white'
+                              : isLightMode
+                              ? 'text-slate-600 hover:bg-slate-200/70'
+                              : 'text-slate-400 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          <AlignCenter className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setComposeSubjectAlign((prev) => (prev === 'left' ? 'auto' : 'left'))
+                          }
+                          title={isEn ? 'Align Left' : 'چپ‌چین'}
+                          className={`p-1 rounded transition cursor-pointer ${
+                            composeSubjectAlign === 'left' ||
+                            (composeSubjectAlign === 'auto' && composeSubjectDir === 'ltr')
+                              ? 'bg-indigo-600 text-white'
+                              : isLightMode
+                              ? 'text-slate-600 hover:bg-slate-200/70'
+                              : 'text-slate-400 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          <AlignLeft className="w-3 h-3" />
+                        </button>
+                      </div>
+
+                      {/* Quick Subject Emoji Picker Button */}
+                      <button
+                        type="button"
+                        onClick={() => setSubjectEmojiOpen((o) => !o)}
+                        title={isEn ? 'Insert emoji into subject' : 'افزودن ایموجی به عنوان'}
+                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-semibold transition cursor-pointer ${
+                          subjectEmojiOpen
+                            ? 'bg-indigo-600 border-indigo-600 text-white'
+                            : isLightMode
+                            ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-200/70'
+                            : 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-white/10'
+                        }`}
+                      >
+                        <Smile className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {subjectEmojiOpen && (
+                    <div
+                      className={`mb-2 p-2 rounded-xl border grid grid-cols-8 sm:grid-cols-12 gap-1 ${
+                        isLightMode
+                          ? 'bg-slate-50 border-slate-200'
+                          : 'bg-slate-950 border-slate-800'
+                      }`}
+                    >
+                      {[...EMOJI_CATEGORIES[1].emojis.slice(0, 16), ...EMOJI_CATEGORIES[0].emojis.slice(0, 8)].map(
+                        (emoji) => (
+                          <button
+                            key={`subj-${emoji}`}
+                            type="button"
+                            onClick={() => insertSubjectEmoji(emoji)}
+                            className={`h-7 rounded text-sm flex items-center justify-center cursor-pointer transition hover:scale-110 ${
+                              isLightMode ? 'hover:bg-slate-200/80' : 'hover:bg-white/10'
+                            }`}
+                          >
+                            {emoji}
+                          </button>
+                        )
+                      )}
+                    </div>
+                  )}
+
                   <input
+                    ref={subjectInputRef}
                     type="text"
+                    dir={composeSubjectDir}
                     value={composeTitle}
                     onChange={(e) => setComposeTitle(e.target.value)}
                     placeholder={
@@ -2934,7 +3199,19 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                         ? 'Enter clear subject...'
                         : 'مثال: اطلاعیه زمان‌بندی ارتقای سوئیچ هسته...'
                     }
-                    className={`w-full px-3 py-2 rounded-lg border text-xs outline-none ${
+                    className={`w-full px-3 py-2 rounded-lg border text-xs sm:text-sm outline-none ${
+                      composeSubjectAlign === 'right'
+                        ? 'text-right'
+                        : composeSubjectAlign === 'left'
+                        ? 'text-left'
+                        : composeSubjectAlign === 'center'
+                        ? 'text-center'
+                        : composeSubjectDir === 'rtl'
+                        ? 'text-right'
+                        : composeSubjectDir === 'ltr'
+                        ? 'text-left'
+                        : ''
+                    } ${
                       isLightMode
                         ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-500'
                         : 'bg-slate-950 border-slate-700 text-white focus:border-indigo-500'
@@ -2942,23 +3219,37 @@ export const CommunicationsCenterView: React.FC<CommunicationsCenterViewProps> =
                   />
                 </div>
 
-                {/* Body */}
+                {/* Body (Rich Text Editor with RTL/LTR, Alignment, Colors, Links, Emojis) */}
                 <div>
-                  <label className="block text-xs font-semibold mb-1.5">
-                    {isEn ? 'Message Body' : 'متن کامل پیام'}
-                  </label>
-                  <textarea
-                    rows={5}
-                    value={composeBody}
-                    onChange={(e) => setComposeBody(e.target.value)}
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <label className="text-xs font-semibold">
+                      {isEn ? 'Message Body' : 'متن کامل پیام'}
+                    </label>
+                    <span
+                      className={`text-[10px] ${
+                        isLightMode ? 'text-slate-500' : 'text-slate-400'
+                      }`}
+                    >
+                      {isEn
+                        ? 'Supports RTL/LTR, alignment, bold, colors, links & emojis'
+                        : 'پشتیبانی از راست‌به‌چپ/چپ‌به‌چپ، ترازبندی، رنگ، لینک و ایموجی'}
+                    </span>
+                  </div>
+                  <RichMessageEditor
+                    valueHtml={composeBodyHtml}
+                    bodyDir={composeBodyDir}
+                    bodyAlign={composeBodyAlign}
+                    onChange={({ html, plainText }) => {
+                      setComposeBodyHtml(html);
+                      setComposeBody(plainText);
+                    }}
+                    onBodyDirChange={setComposeBodyDir}
+                    onBodyAlignChange={setComposeBodyAlign}
                     placeholder={
                       isEn ? 'Write message details...' : 'توضیحات کامل و جزئیات اجرایی...'
                     }
-                    className={`w-full px-3 py-2 rounded-lg border text-xs outline-none resize-y ${
-                      isLightMode
-                        ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-500'
-                        : 'bg-slate-950 border-slate-700 text-white focus:border-indigo-500'
-                    }`}
+                    isEn={isEn}
+                    isLightMode={isLightMode}
                   />
                 </div>
 

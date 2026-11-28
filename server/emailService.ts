@@ -1,5 +1,10 @@
 import nodemailer from 'nodemailer';
 import { EmailConfig } from './db';
+import {
+  normalizeRichAlign,
+  normalizeRichDirection,
+  sanitizeRichMessageHtml,
+} from '../src/utils/richMessageSanitizer';
 
 export interface TestEmailResult {
   success: boolean;
@@ -802,6 +807,12 @@ export interface CommsEmailDispatchItem {
   titleEn?: string;
   body: string;
   bodyEn?: string;
+  bodyHtml?: string;
+  bodyHtmlEn?: string;
+  subjectDir?: 'auto' | 'rtl' | 'ltr';
+  subjectAlign?: 'auto' | 'right' | 'center' | 'left';
+  bodyDir?: 'auto' | 'rtl' | 'ltr';
+  bodyAlign?: 'auto' | 'right' | 'center' | 'left' | 'justify';
   linkedEntityName?: string | null;
   channelName?: string | null;
 }
@@ -912,6 +923,34 @@ export async function sendCommsCategoryEmailBatch(
       const displayBody = isEn
         ? (item.bodyEn || item.body || '').trim()
         : (item.body || item.bodyEn || '').trim();
+      const rawRichHtml = isEn
+        ? item.bodyHtmlEn || item.bodyHtml || ''
+        : item.bodyHtml || item.bodyHtmlEn || '';
+      const safeEmailBodyHtml = rawRichHtml ? sanitizeRichMessageHtml(rawRichHtml) : '';
+      const subjectDir = normalizeRichDirection(item.subjectDir, isEn ? 'ltr' : 'rtl');
+      const subjectAlign = normalizeRichAlign(item.subjectAlign, 'auto');
+      const subjectAlignCss =
+        subjectAlign === 'auto'
+          ? subjectDir === 'rtl'
+            ? 'right'
+            : subjectDir === 'ltr'
+            ? 'left'
+            : isEn
+            ? 'left'
+            : 'right'
+          : subjectAlign;
+      const bodyDir = normalizeRichDirection(item.bodyDir, isEn ? 'ltr' : 'rtl');
+      const bodyAlign = normalizeRichAlign(item.bodyAlign, 'auto');
+      const bodyAlignCss =
+        bodyAlign === 'auto'
+          ? bodyDir === 'rtl'
+            ? 'right'
+            : bodyDir === 'ltr'
+            ? 'left'
+            : isEn
+            ? 'left'
+            : 'right'
+          : bodyAlign;
       const categoryText = isEn ? catMeta.en : catMeta.fa;
 
       const subject = `[${panelTitle}] ${categoryText}: ${displayTitle}`;
@@ -942,7 +981,7 @@ export async function sendCommsCategoryEmailBatch(
               <div style="font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:${catMeta.accent};margin-bottom:6px;">
                 ${escapeEmailHtml(panelTitle)} • ${escapeEmailHtml(categoryText)}
               </div>
-              <h1 style="margin:0;font-size:18px;font-weight:800;color:#ffffff;line-height:1.45;">
+              <h1 dir="${subjectDir}" style="margin:0;font-size:18px;font-weight:800;color:#ffffff;line-height:1.45;text-align:${subjectAlignCss};">
                 ${escapeEmailHtml(displayTitle)}
               </h1>
               <div style="margin-top:10px;">
@@ -961,8 +1000,8 @@ export async function sendCommsCategoryEmailBatch(
                     : `کاربر گرامی <strong>${escapeEmailHtml(recipientDisplay)}</strong>،`
                 }
               </p>
-              <div style="background:#0b1220;border:1px solid #1e293b;border-radius:12px;padding:16px 18px;font-size:14px;line-height:1.75;color:#f1f5f9;white-space:pre-wrap;word-break:break-word;">
-                ${escapeEmailHtml(displayBody)}
+              <div dir="${bodyDir}" style="background:#0b1220;border:1px solid #1e293b;border-radius:12px;padding:16px 18px;font-size:14px;line-height:1.75;color:#f1f5f9;text-align:${bodyAlignCss};word-break:break-word;${safeEmailBodyHtml ? '' : 'white-space:pre-wrap;'}">
+                ${safeEmailBodyHtml || escapeEmailHtml(displayBody)}
               </div>
               <table role="presentation" width="100%" style="margin-top:18px;background:#111c33;border:1px solid #1e293b;border-radius:12px;padding:12px 16px;font-size:12px;color:#94a3b8;">
                 <tr>

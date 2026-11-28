@@ -1227,6 +1227,12 @@ export interface CommsDispatchPayload {
   titleEn?: string;
   body: string;
   bodyEn?: string;
+  bodyHtml?: string;
+  bodyHtmlEn?: string;
+  subjectDir?: 'auto' | 'rtl' | 'ltr';
+  subjectAlign?: 'auto' | 'right' | 'center' | 'left';
+  bodyDir?: 'auto' | 'rtl' | 'ltr';
+  bodyAlign?: 'auto' | 'right' | 'center' | 'left' | 'justify';
   requiresAcknowledgment?: boolean;
   linkedEntityType?: string;
   linkedEntityId?: string;
@@ -1649,6 +1655,11 @@ export interface CommsAnnouncementSummary {
   title: string;
   titleEn?: string | null;
   body: string;
+  bodyHtml?: string | null;
+  subjectDir?: 'auto' | 'rtl' | 'ltr' | null;
+  subjectAlign?: 'auto' | 'right' | 'center' | 'left' | null;
+  bodyDir?: 'auto' | 'rtl' | 'ltr' | null;
+  bodyAlign?: 'auto' | 'right' | 'center' | 'left' | 'justify' | null;
   priority: CommsSeverity;
   senderName: string;
   requiresAcknowledgment: boolean;

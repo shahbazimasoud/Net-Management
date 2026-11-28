@@ -18,6 +18,7 @@ import {
   fetchSentAnnouncements,
 } from '../../services/commsApi';
 import { appDataCache } from '../../services/dataCache';
+import { SafeRichMessageContent } from './SafeRichMessageContent';
 
 interface AnnouncementTrackerPaneProps {
   isLightMode: boolean;
@@ -317,21 +318,49 @@ export const AnnouncementTrackerPane: React.FC<AnnouncementTrackerPaneProps> = (
                   isLightMode ? 'border-slate-200' : 'border-white/10'
                 }`}
               >
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <h3
+                    dir={selectedSummary.subjectDir || 'auto'}
                     className={`text-base font-bold ${
-                      isLightMode ? 'text-slate-900' : 'text-white'
-                    }`}
+                      selectedSummary.subjectAlign === 'right'
+                        ? 'text-right'
+                        : selectedSummary.subjectAlign === 'left'
+                        ? 'text-left'
+                        : selectedSummary.subjectAlign === 'center'
+                        ? 'text-center'
+                        : selectedSummary.subjectDir === 'rtl'
+                        ? 'text-right'
+                        : selectedSummary.subjectDir === 'ltr'
+                        ? 'text-left'
+                        : ''
+                    } ${isLightMode ? 'text-slate-900' : 'text-white'}`}
                   >
                     {isEn ? selectedSummary.titleEn || selectedSummary.title : selectedSummary.title}
                   </h3>
-                  <p
-                    className={`text-xs mt-1 whitespace-pre-wrap ${
-                      isLightMode ? 'text-slate-600' : 'text-slate-300'
-                    }`}
-                  >
-                    {selectedSummary.body}
-                  </p>
+                  {selectedSummary.bodyHtml ? (
+                    <SafeRichMessageContent
+                      html={selectedSummary.bodyHtml}
+                      dir={selectedSummary.bodyDir}
+                      align={selectedSummary.bodyAlign}
+                      isLightMode={isLightMode}
+                      className="mt-1.5"
+                    />
+                  ) : (
+                    <p
+                      dir={selectedSummary.bodyDir || 'auto'}
+                      className={`text-xs mt-1 whitespace-pre-wrap ${
+                        selectedSummary.bodyAlign === 'right'
+                          ? 'text-right'
+                          : selectedSummary.bodyAlign === 'left'
+                          ? 'text-left'
+                          : selectedSummary.bodyAlign === 'center'
+                          ? 'text-center'
+                          : ''
+                      } ${isLightMode ? 'text-slate-600' : 'text-slate-300'}`}
+                    >
+                      {selectedSummary.body}
+                    </p>
+                  )}
                 </div>
                 <div
                   className={`flex items-center gap-4 text-xs tabular-nums shrink-0 ${

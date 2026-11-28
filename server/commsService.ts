@@ -62,6 +62,12 @@ import {
 } from './commsWs';
 import { evaluateNotificationDeliveryForUser } from './profileService';
 import { CommsEmailDispatchItem, sendCommsCategoryEmailBatch } from './emailService';
+import {
+  extractPlainTextFromRichHtml,
+  normalizeRichAlign,
+  normalizeRichDirection,
+  sanitizeRichMessageHtml,
+} from '../src/utils/richMessageSanitizer';
 
 const execFileAsync = promisify(execFile);
 
@@ -75,6 +81,12 @@ interface PendingCommsEmailTarget {
   titleEn?: string;
   body: string;
   bodyEn?: string;
+  bodyHtml?: string;
+  bodyHtmlEn?: string;
+  subjectDir?: 'auto' | 'rtl' | 'ltr';
+  subjectAlign?: 'auto' | 'right' | 'center' | 'left';
+  bodyDir?: 'auto' | 'rtl' | 'ltr';
+  bodyAlign?: 'auto' | 'right' | 'center' | 'left' | 'justify';
   linkedEntityName?: string | null;
   channelName?: string | null;
 }
@@ -186,6 +198,12 @@ async function dispatchCommsEmailsAsync(targets: PendingCommsEmailTarget[]): Pro
         titleEn: t.titleEn,
         body: t.body,
         bodyEn: t.bodyEn,
+        bodyHtml: t.bodyHtml,
+        bodyHtmlEn: t.bodyHtmlEn,
+        subjectDir: t.subjectDir,
+        subjectAlign: t.subjectAlign,
+        bodyDir: t.bodyDir,
+        bodyAlign: t.bodyAlign,
         linkedEntityName: t.linkedEntityName,
         channelName: t.channelName,
       });
@@ -1240,15 +1258,31 @@ export async function dispatchCommunication(
   notifications: CommsNotificationItem[];
 }> {
   const title = (payload.title || '').trim();
-  const body = (payload.body || '').trim();
+  const bodyHtml = payload.bodyHtml ? sanitizeRichMessageHtml(payload.bodyHtml) : '';
+  const bodyHtmlEn = payload.bodyHtmlEn
+    ? sanitizeRichMessageHtml(payload.bodyHtmlEn)
+    : bodyHtml;
+  const derivedBody = bodyHtml ? extractPlainTextFromRichHtml(bodyHtml) : '';
+  const body = (payload.body || '').trim() || derivedBody;
   if (!title || !body) {
     throw new Error('Subject title and message body are required.');
   }
 
   const titleEn = (payload.titleEn || '').trim() || title;
-  const bodyEn = (payload.bodyEn || '').trim() || body;
-  const summary = body.length > 140 ? `${body.slice(0, 137)}...` : body;
-  const summaryEn = bodyEn.length > 140 ? `${bodyEn.slice(0, 137)}...` : bodyEn;
+  const derivedBodyEn = bodyHtmlEn ? extractPlainTextFromRichHtml(bodyHtmlEn) : '';
+  const bodyEn = (payload.bodyEn || '').trim() || derivedBodyEn || body;
+  const collapsedBody = body.replace(/\s+/g, ' ').trim();
+  const collapsedBodyEn = bodyEn.replace(/\s+/g, ' ').trim();
+  const summary = collapsedBody.length > 140 ? `${collapsedBody.slice(0, 137)}...` : collapsedBody;
+  const summaryEn =
+    collapsedBodyEn.length > 140 ? `${collapsedBodyEn.slice(0, 137)}...` : collapsedBodyEn;
+
+  const subjectDir = normalizeRichDirection(payload.subjectDir, 'auto');
+  const rawSubjectAlign = normalizeRichAlign(payload.subjectAlign, 'auto');
+  const subjectAlign: 'auto' | 'right' | 'center' | 'left' =
+    rawSubjectAlign === 'justify' ? 'auto' : rawSubjectAlign;
+  const bodyDir = normalizeRichDirection(payload.bodyDir, 'auto');
+  const bodyAlign = normalizeRichAlign(payload.bodyAlign, 'auto');
 
   const recipients = await resolveTargetRecipients(payload.targetType, payload.targetIds || []);
   if (recipients.length === 0) {
@@ -1258,6 +1292,14 @@ export async function dispatchCommunication(
   const nowIso = new Date().toISOString();
   const messageId = makeId('msg');
   const senderDisplay = formatUserDisplay(senderUser.fullName, senderUser.username);
+
+  const richMetadata = {
+    ...(bodyHtml ? { bodyHtml, bodyHtmlEn: bodyHtmlEn || bodyHtml } : {}),
+    subjectDir,
+    subjectAlign,
+    bodyDir,
+    bodyAlign,
+  };
 
   const messageRecord = {
     id: messageId,
@@ -1279,6 +1321,7 @@ export async function dispatchCommunication(
       targetType: payload.targetType,
       targetIds: payload.targetIds || [],
       requiresAcknowledgment: Boolean(payload.requiresAcknowledgment),
+      ...richMetadata,
     },
     created_at: nowIso,
   };
@@ -1304,6 +1347,11 @@ export async function dispatchCommunication(
         titleEn,
         body,
         bodyEn,
+        ...(bodyHtml ? { bodyHtml, bodyHtmlEn: bodyHtmlEn || bodyHtml } : {}),
+        subjectDir,
+        subjectAlign,
+        bodyDir,
+        bodyAlign,
         linkedEntityName: payload.linkedEntityName || null,
       });
     }
@@ -1338,6 +1386,7 @@ export async function dispatchCommunication(
         senderUsername: senderUser.username,
         quietHoursMuted: pref.quietHoursMuted,
         playSound: pref.playSound,
+        ...richMetadata,
       },
       created_at: nowIso,
     });
@@ -5936,6 +5985,11 @@ export async function getAnnouncementReceipts(
       title: msgRow.title || '',
       titleEn: msgRow.title_en ?? msgRow.titleEn ?? null,
       body: msgRow.body || '',
+      bodyHtml: typeof meta.bodyHtml === 'string' ? sanitizeRichMessageHtml(meta.bodyHtml) : null,
+      subjectDir: meta.subjectDir || null,
+      subjectAlign: meta.subjectAlign || null,
+      bodyDir: meta.bodyDir || null,
+      bodyAlign: meta.bodyAlign || null,
       priority: (msgRow.priority || 'info') as CommsSeverity,
       senderName: formatUserDisplay(senderFull, senderUser) || 'Manager',
       requiresAcknowledgment: Boolean(meta.requiresAcknowledgment),
